@@ -1,0 +1,115 @@
+[gingery@rrz005 C]$ /users/gingery/GASNet-1.20.2_standard/bin/gasnetrun_ibv -n 2 -v -- ./hello.x
+Ginger: gasnetrun_ibv.pl beginning
+gasnetrun: located executable '/turquoise/users/gingery/openshmemReleases/openshmem-release-1.0e/examples/C/./hello.x'
+gasnetrun: running: /turquoise/users/gingery/openshmemReleases/openshmem-release-1.0e/examples/C/./hello.x -GASNET-SPAWN-master -v 2 --
+Spawning '/turquoise/users/gingery/openshmemReleases/openshmem-release-1.0e/examples/C/./hello.x': 2 processes
+ENV parameter: GASNET_IB_SPAWNER = SSH                                   
+ENV parameter: GASNET_SSH_RATE = 0                              (default)
+ENV parameter: GASNET_SSH_CMD = ssh                             (default)
+Configuring for OpenSSH
+ENV parameter: GASNET_SSH_OPTIONS = *empty*                     (default)
+Constructed ssh command line:
+	    ssh
+	    -o
+	    StrictHostKeyChecking no
+	    -o
+	    FallBackToRsh no
+	    -o
+	    BatchMode yes
+	    -o
+	    ForwardX11 no
+	    -q
+	    HOST
+	    CMD
+ENV parameter: GASNET_SSH_NODEFILE = *empty*                    (default)
+ENV parameter: GASNET_SSH_SERVERS = *not set*                   (default)
+ENV parameter: PBS_NODEFILE = *not set*                         (default)
+ENV parameter: PE_HOSTFILE = *not set*                          (default)
+ENV parameter: SSS_HOSTLIST = *not set*                         (default)
+ENV parameter: LSB_HOSTS = *not set*                            (default)
+ENV parameter: SLURM_JOB_ID = 41354                                      
+Parsing nodes from command 'scontrol show hostname'
+	rrz005
+	rrz100
+ENV parameter: GASNET_SSH_REMOTE_PATH = *not set*               (default)
+[-1] spawning process 0 on rrz005 via ssh
+[-1] spawning process 1 on rrz100 via ssh
+[0] connected
+ENV parameter: GASNET_IB_SPAWNER = (not set)                    (default)
+ENV parameter: GASNET_FREEZE = NO                               (default)
+ENV parameter: GASNET_DISABLE_ARGDECODE = NO                    (default)
+ENV parameter: GASNET_DISABLE_ENVDECODE = NO                    (default)
+ENV parameter: GASNET_BACKTRACE = YES                                    
+ENV parameter: GASNET_BACKTRACE_NODES = *not set*               (default)
+ENV parameter: GASNET_TMPDIR = *not set*                        (default)
+ENV parameter: TMPDIR = /tmp                                             
+ENV parameter: GASNET_BACKTRACE_TYPE = GDB,EXECINFO,PGDBG       (default)
+ENV parameter: GASNET_FREEZE_ON_ERROR = NO                      (default)
+ENV parameter: GASNET_FREEZE_SIGNAL = *not set*                 (default)
+ENV parameter: GASNET_BACKTRACE_SIGNAL = *not set*              (default)
+ENV parameter: GASNET_IBV_PORTS = *empty*                       (default)
+ENV parameter: GASNET_MAX_MTU = 0                               (default)
+ENV parameter: GASNET_QP_TIMEOUT = 18                           (default)
+ENV parameter: GASNET_QP_RETRY_COUNT = 7                        (default)
+ENV parameter: GASNET_QP_RD_ATOM = 0                            (default)
+ENV parameter: GASNET_NETWORKDEPTH_PP = 24                      (default)
+ENV parameter: GASNET_NETWORKDEPTH_TOTAL = 255                  (default)
+ENV parameter: GASNET_AM_CREDITS_PP = 12                        (default)
+ENV parameter: GASNET_AM_CREDITS_TOTAL = 24                     (default)
+ENV parameter: GASNET_AM_CREDITS_SLACK = 1                      (default)
+ENV parameter: GASNET_BBUF_COUNT = 1024                         (default)
+ENV parameter: GASNET_RBUF_COUNT = 1024                         (default)
+ENV parameter: GASNET_NUM_QPS = 0                               (default)
+ENV parameter: GASNET_INLINESEND_LIMIT = 72                     (default)
+ENV parameter: GASNET_NONBULKPUT_BOUNCE_LIMIT = 64 KB           (default)
+ENV parameter: GASNET_PACKEDLONG_LIMIT = 4016 B                 (default)
+ENV parameter: GASNET_AMRDMA_MAX_PEERS = 32                     (default)
+ENV parameter: GASNET_AMRDMA_LIMIT = 4080 B                     (default)
+ENV parameter: GASNET_AMRDMA_DEPTH = 16                         (default)
+ENV parameter: GASNET_AMRDMA_CYCLE = 1024                       (default)
+ENV parameter: GASNET_PIN_MAXSZ = 0                             (default)
+ENV parameter: GASNET_RCV_THREAD = NO                           (default)
+ENV parameter: GASNET_USE_FIREHOSE = YES                        (default)
+ENV parameter: GASNET_USE_SRQ = -1                              (default)
+ENV parameter: GASNET_EXITTIMEOUT_MAX = 360                     (default)
+ENV parameter: GASNET_EXITTIMEOUT_MIN = 2                       (default)
+ENV parameter: GASNET_EXITTIMEOUT_FACTOR = 0.25                 (default)
+ENV parameter: GASNET_EXITTIMEOUT = 2147483646 (2.14748e+09)             
+[1] connected
+ENV parameter: GASNET_NODEMAP_EXACT = NO                        (default)
+ENV parameter: GASNET_SUPERNODE_MAXSIZE = 0                     (default)
+ENV parameter: GASNET_PSHM_NETWORK_DEPTH = 32                   (default)
+ENV parameter: GASNET_CONNECT_RCVS = 6                          (default)
+ENV parameter: GASNET_CONNECT_SNDS = 4                          (default)
+ENV parameter: GASNET_CONNECTFILE_BASE = 36                     (default)
+ENV parameter: GASNET_CONNECT_STATIC = YES                      (default)
+ENV parameter: GASNET_CONNECT_DYNAMIC = YES                     (default)
+ENV parameter: GASNET_CONNECT_RETRANS_MIN = 1000                (default)
+ENV parameter: GASNET_CONNECT_RETRANS_MAX = 67108864            (default)
+ENV parameter: GASNET_PHYSMEM_MAX = 0                           (default)
+ENV parameter: GASNET_MAX_SEGSIZE = 2047 MB                     (default)
+ENV parameter: GASNET_BARRIER = DISSEM                          (default)
+ENV parameter: GASNET_COLL_MIN_SCRATCH_SIZE = 1 KB              (default)
+ENV parameter: GASNET_COLL_SCRATCH_SIZE = 2 MB                  (default)
+ENV parameter: GASNET_FIREHOSE_VERBOSE = NO                     (default)
+ENV parameter: GASNET_FIREHOSE_M = 96 KB                        (default)
+ENV parameter: GASNET_FIREHOSE_MAXVICTIM_M = 4095 MB            (default)
+ENV parameter: GASNET_FIREHOSE_R = 1                            (default)
+ENV parameter: GASNET_FIREHOSE_MAXVICTIM_R = 32766              (default)
+ENV parameter: GASNET_FIREHOSE_MAXREGION_SIZE = 128 KB          (default)
+ENV parameter: GASNET_DISABLE_MUNMAP = NO                       (default)
+ENV parameter: GASNET_MAX_THREADS = 256                         (default)
+ENV parameter: GASNET_PSHM_BARRIER_RADIX = 0                    (default)
+ENV parameter: GASNET_VIS_AMPIPE = NO                           (default)
+ENV parameter: GASNET_VIS_MAXCHUNK = 4008 B                     (default)
+ENV parameter: GASNET_VIS_REMOTECONTIG = NO                     (default)
+Hello from node    0 of    2
+ENV parameter: GASNET_FS_SYNC = NO                              (default)
+[-1] Sigsuspend with 2 children left
+Hello from node    1 of    2
+[-1] Reaped pid 3115 (1 left)
+[-1] Process 0 exited with status 0
+[-1] Sigsuspend with 1 children left
+[-1] Reaped pid 3116 (0 left)
+[-1] Process 1 exited with status 0
+[-1] Exit with status 0

@@ -1,0 +1,10 @@
+To Run:
+msub -I -l nodes=4:ppn=2
+
+#setenv GASNET_PSHM_NODES "4 ./put-get -d2 -f../tester/inTestBasic.txt -t5 -q"
+setenv OPENSHMEM_GASNET_CONDUIT SMP
+setenv GASNET_PSHM_NODES 4
+setenv GASNET_SSH_SERVERS rrz005 rrz006 rrz007 rrz100
+setenv OPENSHMEM_GASNET_CONDUIT IBV
+
+nohup srun -N4 -n4 -o output ./put-get 4 -d2 -f../tester/ibnTestBasic.txt -t5 -q
