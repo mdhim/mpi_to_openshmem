@@ -38,3 +38,7 @@ Settings for compiling and running mpi_to_openshmem
                                                           //        output is the output file
 
         nohup - run a command immune to hangups, with output to a non-tty 
+
+	For running tests using -lmpi_to_openshmem:
+	  msub -I -l nodes=4:ppn=4
+	  ~/GASNet-1.20.2_stabdard/bin/gasnetrun_ibv -n 4 -- ./executible argument_vars 
