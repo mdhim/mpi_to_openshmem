@@ -1,7 +1,7 @@
-Last Updated: 9/19/2013
+Last Updated: 10/14/2013
 Created:      9/18/2013
 
-Settings for compiling and running mdhim-tng/mdhimNet
+Settings for compiling and running mpi_to_openshmem
 
    1. Modules and Environment (add to your .cshrc/.tcshrc files)
         setenv MV2_ENABLE_AFFINITY 0
@@ -11,7 +11,7 @@ Settings for compiling and running mdhim-tng/mdhimNet
    2. Necessary third party software:
         leveldb-1.12.0           (http://code.google.com/p/leveldb/)
         GASNet-1.20.2            (http://gasnet.cs.berkeley.edu/)
-        openshmem-release-1.0d   (https://upc-bugs.lbl.gov/~phargrov/sc12/PGAS-SC12/content/openshmem/openshmem/bongo.cs.uh.edu/site/About.html)
+        openshmem-release-1.0e   (https://upc-bugs.lbl.gov/~phargrov/sc12/PGAS-SC12/content/openshmem/openshmem/bongo.cs.uh.edu/site/About.html)
 
    3. Configuration settings for levelDB
 
@@ -19,8 +19,8 @@ Settings for compiling and running mdhim-tng/mdhimNet
        ./configure --prefix=/users/moniker/GASNet-1.20.2_standard
 
    5. Configuration settings for Openshmem
-        ./configure --prefix=/users/moniker/openshmem-1.0d_UDP 
-                    --with-gasnet-conduit=udp 
+        ./configure --prefix=/users/moniker/openshmem-1.0d_IBV 
+                    --with-gasnet-conduit=ibv
                     --with-gasnet-root=/users/moniker/GASNet-1.20.2_standard
                     --enable-debug
 
