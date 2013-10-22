@@ -4,7 +4,7 @@ MPI_TO_OPENSHMEM_ROOT	= /users/gingery/mpi_to_openshmem/src/
 OPENSHMEM_ROOT	= /users/gingery/openshmem-1.0e_IBV/
 GASNET_ROOT		= /users/gingery/GASNet-1.20.2_standard/
 
-CC		= mpicc -g -O0 -Wall
+CC		= oshcc -g -O0 -Wall
 CLIBS	= -L/usr/lib64 -L${LEVEL_DB_ROOT} -L${MPI_TO_OPENSHMEM_ROOT}/src -L${OPENSHMEM_ROOT}/lib -L${GASNET_ROOT}/lib/gasnet-ibv-par -libverbs
 CINC	=  -I${LEVEL_DB_ROOT}/include -I${MPI_TO_OPENSHMEM__ROOT}/src  -I${OPENSHMEM_ROOT}/include -I${GASNET_ROOT}/include  -IMlog/ -Iuthash
 #CLIBS  = -L${MPI_ROOT}/lib -L${LEVEL_DB_ROOT}
@@ -46,7 +46,7 @@ ds_leveldb.o: ds_leveldb.c
 
 range_server.o: range_server.c
 	$(CC) -c $^ $(CINC) $(CLIBS)
-	
+
 db_options.o : db_options.c
 	$(CC) -c $^ $(CINC) $(CLIBS)
 
