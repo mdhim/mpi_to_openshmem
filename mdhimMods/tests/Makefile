@@ -8,7 +8,7 @@ GASNET_ROOT	= /users/gingery/GASNet-1.20.2_standard
 
 CC	= oshcc -g -O0 -Wall
 CLIBS   =  -L../src -L${LEVEL_DB_ROOT} -L${MDHIM_ROOT} -L${MPI_TO_OPENSHMEM_ROOT} -L${OPENSHMEM_ROOT}/lib -L${GASNET_ROOT}/lib 
-CINC    = -I${LEVEL_DB_ROOT}/include/leveldb -I${MDHIM_ROOT}-I${MDHIMNET_ROOT} -I${OPENSHMEM_ROOT}/include -I${GASNET_ROOT}/include -IMlog/ -Iuthash -I../src -I../src/uthash
+CINC    = -I${LEVEL_DB_ROOT}/include/leveldb -I${MDHIM_ROOT} -I${MPI_TO_OPENSHMEM_ROOT} -I${OPENSHMEM_ROOT}/include -I${GASNET_ROOT}/include -IMlog/ -Iuthash -I../src -I../src/uthash
 #CLIBS	= -L${MPI_ROOT}/lib  -L../src -L${LEVEL_DB_ROOT}
 #CINC	= -I${MPI_ROOT}/include -I${LEVEL_DB_ROOT}/include -IMlog/ -Iuthash -I../src -I../src/uthash
 SINGLE = single_tests
@@ -17,7 +17,18 @@ CFLAGS	= -lmdhim -L/usr/lib64 -lmpi_to_openshmem ${OPENSHMEM_ROOT}/lib/libopensh
 #CFLAGS  = -lmpich -lmdhim -lm -lpthread -lstdc++ ${LEVEL_DB_ROOT}/libleveldb.a
 
 
-all:   hello simple2 simple put-get puts-gets put-getn put-getp put-del bput-bget bput-bgetn bput-bdel mdhintst
+#all:   hello testStart broadcast1 simple2 simple put-get puts-gets put-getn put-getp put-del bput-bget bput-bgetn bput-bdel mdhintst
+all:	startPesExample broadcast1 testStart
+
+startPesExample: $(SINGLE)/startPesExample.c
+	$(CC) $< $(CINC) $(CLIBS) $(CFLAGS) -o $(SINGLE)/$@
+
+testStart: $(SINGLE)/testStart.c
+	$(CC) $< $(CINC) $(CLIBS) $(CFLAGS) -o $(SINGLE)/$@
+
+broadcast1: $(SINGLE)/broadcast1.c
+	$(CC) $< $(CINC) $(CLIBS) $(CFLAGS) -o $(SINGLE)/$@
+	
 hello: $(SINGLE)/hello.c
 	$(CC) $< $(CINC) $(CLIBS) $(CFLAGS) -o $(SINGLE)/$@
 
