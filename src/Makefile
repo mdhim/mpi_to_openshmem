@@ -1,10 +1,10 @@
-_ROOT	= /usr/local
+MPI_ROOT	= /usr/local
 #OPENSHMEM_ROOT	= /users/gingery/openshmem-1.0d_UDP
 OPENSHMEM_ROOT = /users/gingery/openshmem-1.0e_IBV
 
 GASNET_ROOT	= /users/gingery/GASNet-1.20.2_standard
 
-CC	= mpicc -g -O0 -Wall
+CC	= oshcc -g -O0 -Wall
 #CLIBS	= -L${MPI_ROOT}/lib -L${OPENSHMEM_ROOT}/lib -L${GASNET_ROOT}/lib
 #CINC	= -I${MPI_ROOT}/include -I${OPENSHMEM_ROOT}/include -I${GASNET_ROOT}/include -IMlog/ 
 CLIBS	= -L${OPENSHMEM_ROOT}/lib -L${GASNET_ROOT}/lib
