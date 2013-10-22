@@ -13,6 +13,64 @@
 
 #include "mpi_to_openshmem.h"
 
+#define DEBUG 1
+
+#define MASTER 0
+struct MPID_Comm *mpiComm;
+
+
+void *createBuffer( MPI_Datatype dataType, int count){
+	
+	void *buffer;
+	//int npes;
+	
+	//npes = mpiComm[MASTER].local_size;
+	
+	switch (dataType){
+		case MPI_CHAR:
+			buffer = (char*)shmalloc( sizeof (char)*count); 
+			break;
+		case MPI_UNSIGNED_CHAR:
+		case MPI_BYTE:
+			buffer = (unsigned char*)shmalloc( sizeof (unsigned char)*count); 
+			break;
+		case MPI_SHORT:
+			buffer = (short*)shmalloc( sizeof (short)*count); 
+			break;
+		case MPI_UNSIGNED_SHORT:
+			buffer = (unsigned short*)shmalloc( sizeof (unsigned short)*count); 
+			break;
+		case MPI_INT:
+			buffer = (int*)shmalloc( sizeof (int)*count); 
+			break;
+		case MPI_UNSIGNED:
+			buffer = (unsigned int*)shmalloc( sizeof (unsigned int)*count); 
+			break;
+		case MPI_LONG:
+			buffer = (long*)shmalloc( sizeof (long)*count); 
+			break;
+		case MPI_UNSIGNED_LONG:
+			buffer = (unsigned long*)shmalloc( sizeof (unsigned long)*count); 
+			break;
+		case MPI_FLOAT:
+			buffer = (float*)shmalloc( sizeof (float)*count); 
+			break;
+		case MPI_DOUBLE:
+			buffer = (double*)shmalloc( sizeof (double)*count); 
+			break;
+		case MPI_LONG_DOUBLE:
+			buffer = (long double*)shmalloc( sizeof (long double)*count); 
+			break;
+		case MPI_LONG_LONG:
+			buffer = (long long*)shmalloc( sizeof (long long)*count); 
+			break;
+		default:
+			buffer = NULL; 
+			break;
+	}
+	
+	return buffer;
+}
 
 /**
  * MPI_Init
@@ -48,13 +106,29 @@ int MPI_Init( int *argc, char ***argv ){
  */
 
 int MPI_Init_thread( int *argc, char ***argv, int required, int *provided ){
-	
+	int i;
 	int ret = MPI_SUCCESS;
 
 	//Open mlog - stolen from plfs
 	ret = mlog_open((char *)"mpi_to_openshmem", 0, MLOG_CRIT, MLOG_CRIT, NULL, 0, MLOG_LOGPID, 0);
 
+	//printf("MPI_Init_Thread: before start_pes.\n");
 	start_pes(0);
+	
+	int npes =  _num_pes ();
+	mpiComm = (struct MPID_Comm *) shmalloc (npes * sizeof (MPID_Comm));
+	//printf("MPI_Init_Thread: after start_pes, set up rank and local size\n");
+		
+	// Set up the rank and local_size (npes)
+	for (i=0; i<npes; i++) {
+		mpiComm[i].rank = npes;
+		mpiComm[i].local_size = shmem_n_pes();
+		
+#ifdef DEBUG
+		int me = _my_pe();
+		printf("MPI_Init_Thread: Me: %d, [%d].rank: %d, [%d].local_size: %d\n", me, i, mpiComm[i].rank, i, mpiComm[i].local_size);
+#endif
+	}
 	
 	/* Types of thread support:
 	 * MPI_THREAD_SINGLE
@@ -73,7 +147,8 @@ int MPI_Init_thread( int *argc, char ***argv, int required, int *provided ){
 	 * 
 	 */
 	// Fake the multiple thread stuff with mutix, return the expected values.
-	*provided = required;
+	*provided = MPI_THREAD_MULTIPLE;
+	//printf("MPI_Init_Thread: return.\n");
 		
 	return ret;
 	
@@ -91,7 +166,7 @@ int MPI_Init_thread( int *argc, char ***argv, int required, int *provided ){
  */
 int MPI_Abort (MPI_Comm comm, int errorcode){
 	
-	int ret = MPI_Abort (comm, errorcode);
+	int ret = 1; //MPI_Abort (comm, errorcode);
 	return ret;
 }
 
@@ -106,7 +181,7 @@ int MPI_Abort (MPI_Comm comm, int errorcode){
  */
 int MPI_Barrier (MPI_Comm comm){
 
-	int ret = MPI_Barrier (comm);
+	int ret = -1;//MPI_Barrier (comm);
 	// shmem_barrier_all (void)
 	// shmem_barrier (int PE_start, int logPE_stride, int PE_size, long *pSync)
 	return ret;
@@ -122,10 +197,52 @@ int MPI_Barrier (MPI_Comm comm){
  * @param 
  * @return 
  */
-int MPI_Bcast (void *buffer, int count, MPI_Datatype datatype, int root, MPI_Comm comm){
-	int ret = MPI_Bcast (buffer, count,  datatype, root, comm);
+int MPI_Bcast ( void *source, int count, MPI_Datatype dataType, int root, MPI_Comm comm){
 	
-	return ret;
+	int i, npes, my_pe;
+	void *target;
+
+	npes = _num_pes();
+	my_pe = shmem_my_pe();
+	
+	i = mpiComm[MASTER].local_size;
+		
+	target = createBuffer(dataType, count);
+	if (target != NULL){
+		mpiComm[i].symmetricHeapPtr = target;
+#ifdef DEBUG
+		printf ("Broadcast: my pe: %-8d target Addr: %x\n", my_pe, target);
+#endif
+	}
+	else {
+		return MPI_ERR_NO_MEM;
+	}
+
+#ifdef DEBUG
+	for (i = 0; i < count; i += 1){
+	    printf("MPI_Bcast1, dataType: %d, %d npes: %d, com's npes: %d\n", dataType, MPI_LONG, npes, i);
+		((long*)target)[i] = -999;                                                                        
+	}
+#endif
+	
+	for (i = 0; i < _SHMEM_BCAST_SYNC_SIZE; i += 1){
+		pSync[i] = _SHMEM_SYNC_VALUE;
+    }
+	
+	shmem_barrier_all ();
+	
+	shmem_broadcast64( target, source, count, 0, 0, 0, npes, pSync);
+	
+	
+#ifdef DEBUG
+	for (i = 0; i < count; i++){
+		printf ("Broadcast: my pe: %-8d source: %ld target: %ld\n", my_pe, ((long*)source)[i], ((long*)target)[i]);                                                
+	}
+#endif
+	
+	shmem_barrier_all ();	
+	
+	return MPI_SUCCESS;	
 }
 
 /**
@@ -138,7 +255,7 @@ int MPI_Bcast (void *buffer, int count, MPI_Datatype datatype, int root, MPI_Com
  * @return 
  */
 int MPI_Comm_create (MPI_Comm comm, MPI_Group group, MPI_Comm *newcomm){
-	int ret = MPI_Comm_create ( comm,  group,  newcomm);
+	int ret = 1;//MPI_Comm_create ( comm,  group,  newcomm);
 	return ret;
 }
 
@@ -152,7 +269,7 @@ int MPI_Comm_create (MPI_Comm comm, MPI_Group group, MPI_Comm *newcomm){
  * @return 
  */
 int MPI_Comm_dup (MPI_Comm comm, MPI_Comm *newcomm){
-	int ret = MPI_Comm_dup (comm, newcomm);
+	int ret = 1;//MPI_Comm_dup (comm, newcomm);
 	return ret;
 }
 
@@ -167,7 +284,7 @@ int MPI_Comm_dup (MPI_Comm comm, MPI_Comm *newcomm){
  */
 int MPI_Comm_group (MPI_Comm comm,	MPI_Group *group){
 
-	int ret = MPI_Comm_group(comm, group);
+	int ret = 1;//MPI_Comm_group(comm, group);
 	return ret;
 }
 
@@ -181,8 +298,12 @@ int MPI_Comm_group (MPI_Comm comm,	MPI_Group *group){
  */
 int MPI_Comm_rank (MPI_Comm comm, int *rank){
 	
-	*rank = shmem_my_pe();
+	*rank = shmem_my_pe();	
 	
+#ifdef DEBUG
+	int my_pe = shmem_my_pe();
+	printf("MPI_Comm_rank, my_pe: %-8d rank: %d\n",  my_pe, *rank);
+#endif	
 	return MPI_SUCCESS;
 }
 
@@ -197,6 +318,12 @@ int MPI_Comm_rank (MPI_Comm comm, int *rank){
 int MPI_Comm_size(MPI_Comm comm, int *size ){
 	
 	*size = shmem_n_pes();
+	
+#ifdef DEBUG
+	int my_pe = shmem_my_pe();
+	printf("MPI_Comm_size, my_pe: %-8d size: %d\n", my_pe, *size);
+#endif	
+
 	return MPI_SUCCESS;
 }
 
@@ -225,7 +352,7 @@ int MPI_Allgather (void *sendbuf, int sendcount, MPI_Datatype sendtype, void *re
  * @return 
  */
 int MPI_Gather (void *sendbuf, int sendcount, MPI_Datatype sendtype, void *recvbuf, int recvcount, MPI_Datatype recvtype, int masterRank, MPI_Comm comm){
-	int ret = MPI_Gather (sendbuf,  sendcount,  sendtype,  recvbuf,  recvcount,  recvtype,  masterRank,  comm);
+	int ret = 1;//MPI_Gather (sendbuf,  sendcount,  sendtype,  recvbuf,  recvcount,  recvtype,  masterRank,  comm);
 	return ret;
 }
 
@@ -255,7 +382,7 @@ int MPI_Gather (void *sendbuf, int sendcount, MPI_Datatype sendtype, void *recvb
  */
 int MPI_Gatherv (void *sendbuf, int sendcount, MPI_Datatype sendtype, void *recvbuf, int *recvcount, int *displs, MPI_Datatype recvtype, int masterRank, MPI_Comm comm){
 
-	int ret = MPI_Gatherv (sendbuf,  sendcount,  sendtype, recvbuf, recvcount, displs,  recvtype,  masterRank,  comm);
+	int ret = 1;//MPI_Gatherv (sendbuf,  sendcount,  sendtype, recvbuf, recvcount, displs,  recvtype,  masterRank,  comm);
 	return ret;
 }
 
@@ -270,7 +397,7 @@ int MPI_Gatherv (void *sendbuf, int sendcount, MPI_Datatype sendtype, void *recv
  */
 int MPI_Group_incl (MPI_Group group, int n, int *ranks, MPI_Group *newgroup){
 	
-	int ret = MPI_Group_incl ( group,  n, ranks,  newgroup);
+	int ret = 1;//MPI_Group_incl ( group,  n, ranks,  newgroup);
 	return ret;
 }
 
@@ -285,7 +412,7 @@ int MPI_Group_incl (MPI_Group group, int n, int *ranks, MPI_Group *newgroup){
  */
 int MPI_Recv (void *buf, int count, MPI_Datatype datatype, int source, int tag,MPI_Comm comm, MPI_Status *status){
 	
-	int ret = MPI_Recv (buf, count, datatype, source, tag, comm, status);
+	int ret = 1;//MPI_Recv (buf, count, datatype, source, tag, comm, status);
 	return ret;
 }
 
@@ -300,7 +427,7 @@ int MPI_Recv (void *buf, int count, MPI_Datatype datatype, int source, int tag,M
  */
 int MPI_Send (void *buf, int count, MPI_Datatype datatype, int dest, int tag, MPI_Comm comm){
 	
-	int ret = MPI_Send (buf, count, datatype, dest, tag, comm);
+	int ret = 1;//MPI_Send (buf, count, datatype, dest, tag, comm);
 	return ret;
 }
 
@@ -323,9 +450,8 @@ int MPI_Send (void *buf, int count, MPI_Datatype datatype, int dest, int tag, MP
  * @param 
  * @return 
  */
-int MPI_Irecv (void *buf, int count, MPI_Datatype datatype, int source, int tag, MPI_Comm comm, MPI_Comm *requestComm){
-
-	int ret = MPI_Irecv (buf, count, datatype, source, tag, comm, requestComm);
+int MPI_Irecv (void *buf, int count, MPI_Datatype datatype, int source, int tag, MPI_Comm comm, MPI_Request *requestComm){
+	int ret = 1;//MPI_Irecv (buf, count, datatype, source, tag, comm, requestComm);
 	return ret;
 }
 
@@ -338,9 +464,9 @@ int MPI_Irecv (void *buf, int count, MPI_Datatype datatype, int source, int tag,
  * @param 
  * @return 
  */
-int MPI_Isend (void *buf, int count, MPI_Datatype datatype, int dest, int tag, MPI_Comm comm, MPI_Comm *requestComm){
+int MPI_Isend(void *buf, int count, MPI_Datatype datatype, int dest, int tag, MPI_Comm comm, MPI_Request *requestComm){
 	
-	int ret = MPI_Isend (buf, count, datatype, dest, tag, comm, requestComm);
+	int ret = 1;//MPI_Isend (buf, count, datatype, dest, tag, comm, requestComm);
 	return ret;
 }
 
@@ -355,7 +481,7 @@ int MPI_Isend (void *buf, int count, MPI_Datatype datatype, int dest, int tag, M
  */
 int MPI_Unpack (void *inbuf, int insize, int *position, void *outbuf, int outcount, MPI_Datatype datatype, MPI_Comm comm){
 	
-	int ret = MPI_Unpack (inbuf, insize, position, outbuf, outcount, datatype, comm);
+	int ret = 1;//MPI_Unpack (inbuf, insize, position, outbuf, outcount, datatype, comm);
 	return ret;
 }
 
@@ -369,7 +495,7 @@ int MPI_Unpack (void *inbuf, int insize, int *position, void *outbuf, int outcou
  * @return 
  */
 int MPI_Pack(void *inbuf, int incount, MPI_Datatype datatype, void *outbuf, int outsize, int *position,  MPI_Comm comm){
-	int ret = MPI_Pack (inbuf, incount, datatype, outbuf, outsize, position, comm);
+	int ret = 1;//MPI_Pack (inbuf, incount, datatype, outbuf, outsize, position, comm);
 	return ret;
 	
 }
@@ -384,7 +510,8 @@ int MPI_Pack(void *inbuf, int incount, MPI_Datatype datatype, void *outbuf, int 
  * @return 
  */
 int MPI_Finalize(void){
-	int ret = MPI_Finalize ();
+	shfree (mpiComm);
+	int ret = MPI_SUCCESS; //MPI_Finalize ();
 	return ret;
 }
 
@@ -399,6 +526,6 @@ int MPI_Finalize(void){
  */
 int MPI_Test (MPI_Request *request, int *flag, MPI_Status *status){
 	
-	int ret = MPI_Test (request, flag, status);
+	int ret = 1;//MPI_Test (request, flag, status);
 	return ret;
 }
