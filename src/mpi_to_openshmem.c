@@ -18,7 +18,6 @@
 #define MASTER 0
 struct MPID_Comm *mpiComm;
 
-
 void *createBuffer( MPI_Datatype dataType, int count){
 	
 	void *buffer;
@@ -116,19 +115,23 @@ int MPI_Init_thread( int *argc, char ***argv, int required, int *provided ){
 	start_pes(0);
 	
 	int npes =  _num_pes ();
-	mpiComm = (struct MPID_Comm *) shmalloc (npes * sizeof (MPID_Comm));
+	mpiComm = (struct MPID_Comm *) shmalloc (sizeof (MPID_Comm));
 	//printf("MPI_Init_Thread: after start_pes, set up rank and local size\n");
 		
 	// Set up the rank and local_size (npes)
-	for (i=0; i<npes; i++) {
-		mpiComm[i].rank = npes;
-		mpiComm[i].local_size = shmem_n_pes();
+	mpiComm[0].rank = shmem_my_pe();
+	mpiComm[0].local_size = npes;
+	
+	//for (i=0; i<npes; i++) {
+	//	mpiComm[i].rank = shmem_my_pe();
+	//	mpiComm[i].local_size = npes;
 		
 #ifdef DEBUG
 		int me = _my_pe();
-		printf("MPI_Init_Thread: Me: %d, [%d].rank: %d, [%d].local_size: %d\n", me, i, mpiComm[i].rank, i, mpiComm[i].local_size);
+		//printf("MPI_Init_Thread: Me: %d, [%d].rank: %d, [%d].local_size: %d\n", me, i, mpiComm[i].rank, i, mpiComm[i].local_size);
+		printf("MPI_Init_Thread: Me: %d, [0].rank: %d, [0].local_size: %d\n", me, mpiComm[0].rank, mpiComm[0].local_size);
 #endif
-	}
+	//}
 	
 	/* Types of thread support:
 	 * MPI_THREAD_SINGLE
@@ -205,13 +208,16 @@ int MPI_Bcast ( void *source, int count, MPI_Datatype dataType, int root, MPI_Co
 	npes = _num_pes();
 	my_pe = shmem_my_pe();
 	
-	i = mpiComm[MASTER].local_size;
+	
+	//i = mpiComm[root].local_size;
+	//i = mpiComm[0].local_size;
 		
 	target = createBuffer(dataType, count);
 	if (target != NULL){
-		mpiComm[i].symmetricHeapPtr = target;
+		//		mpiComm[i].symmetricHeapPtr = target;
+		mpiComm[0].symmetricHeapPtr = target;
 #ifdef DEBUG
-		printf ("Broadcast: my pe: %-8d target Addr: %x\n", my_pe, target);
+		//printf ("Broadcast: my pe: %-8d target Addr: %x\n", my_pe, target);
 #endif
 	}
 	else {
@@ -220,7 +226,7 @@ int MPI_Bcast ( void *source, int count, MPI_Datatype dataType, int root, MPI_Co
 
 #ifdef DEBUG
 	for (i = 0; i < count; i += 1){
-	    printf("MPI_Bcast1, dataType: %d, %d npes: %d, com's npes: %d\n", dataType, MPI_LONG, npes, i);
+	    //printf("MPI_Bcast1, dataType: %d, %d npes: %d, com's npes: %d\n", dataType, MPI_LONG, npes, i);
 		((long*)target)[i] = -999;                                                                        
 	}
 #endif
@@ -231,12 +237,12 @@ int MPI_Bcast ( void *source, int count, MPI_Datatype dataType, int root, MPI_Co
 	
 	shmem_barrier_all ();
 	
-	shmem_broadcast64( target, source, count, 0, 0, 0, npes, pSync);
+	shmem_broadcast64( target, source, count, root, 0, 0, npes, pSync);
 	
 	
 #ifdef DEBUG
 	for (i = 0; i < count; i++){
-		printf ("Broadcast: my pe: %-8d source: %ld target: %ld\n", my_pe, ((long*)source)[i], ((long*)target)[i]);                                                
+		printf ("MPI_Bcast1: my pe: %-8d source: %ld target: %ld\n", my_pe, ((long*)source)[i], ((long*)target)[i]);                                                
 	}
 #endif
 	
@@ -302,7 +308,7 @@ int MPI_Comm_rank (MPI_Comm comm, int *rank){
 	
 #ifdef DEBUG
 	int my_pe = shmem_my_pe();
-	printf("MPI_Comm_rank, my_pe: %-8d rank: %d\n",  my_pe, *rank);
+	//printf("MPI_Comm_rank, my_pe: %-8d rank: %d\n",  my_pe, *rank);
 #endif	
 	return MPI_SUCCESS;
 }
@@ -317,11 +323,11 @@ int MPI_Comm_rank (MPI_Comm comm, int *rank){
  */
 int MPI_Comm_size(MPI_Comm comm, int *size ){
 	
-	*size = shmem_n_pes();
+	*size = _num_pes();
 	
 #ifdef DEBUG
 	int my_pe = shmem_my_pe();
-	printf("MPI_Comm_size, my_pe: %-8d size: %d\n", my_pe, *size);
+	//printf("MPI_Comm_size, my_pe: %-8d size: %d\n", my_pe, *size);
 #endif	
 
 	return MPI_SUCCESS;
@@ -510,7 +516,7 @@ int MPI_Pack(void *inbuf, int incount, MPI_Datatype datatype, void *outbuf, int 
  * @return 
  */
 int MPI_Finalize(void){
-	shfree (mpiComm);
+	//shfree (mpiComm);
 	int ret = MPI_SUCCESS; //MPI_Finalize ();
 	return ret;
 }
