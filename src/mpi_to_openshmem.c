@@ -15,10 +15,8 @@
 
 #define DEBUG 1
 
-#define MASTER 0
-struct MPID_Comm *mpiComm;
 
-void *createBuffer( MPI_Datatype dataType, int count){
+/*void *createBuffer( MPI_Datatype dataType, int count){
 	
 	void *buffer;
 	//int npes;
@@ -69,7 +67,7 @@ void *createBuffer( MPI_Datatype dataType, int count){
 	}
 	
 	return buffer;
-}
+}*/
 
 /**
  * MPI_Init
@@ -107,29 +105,29 @@ int MPI_Init( int *argc, char ***argv ){
 int MPI_Init_thread( int *argc, char ***argv, int required, int *provided ){
 	int i;
 	int ret = MPI_SUCCESS;
+	void *sharedBuffer;
 
 	//Open mlog - stolen from plfs
 	ret = mlog_open((char *)"mpi_to_openshmem", 0, MLOG_CRIT, MLOG_CRIT, NULL, 0, MLOG_LOGPID, 0);
 
-	//printf("MPI_Init_Thread: before start_pes.\n");
 	start_pes(0);
 	
 	int npes =  _num_pes ();
-	mpiComm = (struct MPID_Comm *) shmalloc (sizeof (MPID_Comm));
-	//printf("MPI_Init_Thread: after start_pes, set up rank and local size\n");
-		
-	// Set up the rank and local_size (npes)
-	mpiComm[0].rank = shmem_my_pe();
-	mpiComm[0].local_size = npes;
+	int my_pe = shmem_my_pe();
 	
-	//for (i=0; i<npes; i++) {
-	//	mpiComm[i].rank = shmem_my_pe();
-	//	mpiComm[i].local_size = npes;
+	sharedBuffer = (void *)shmalloc(sizeof(char) * MAX_BUFFER_SIZE);
+	
+	//printf("MPI_Init_Thread: after start_pes, set up rank and local size\n");
+	
+	// Set up the rank and local_size (npes)
+	mpiComm[MPI_COMM_WORLD].rank      = shmem_my_pe();
+	mpiComm[MPI_COMM_WORLD].size      = npes;
+	mpiComm[MPI_COMM_WORLD].bufferPtr = sharedBuffer;
 		
 #ifdef DEBUG
 		int me = _my_pe();
 		//printf("MPI_Init_Thread: Me: %d, [%d].rank: %d, [%d].local_size: %d\n", me, i, mpiComm[i].rank, i, mpiComm[i].local_size);
-		printf("MPI_Init_Thread: Me: %d, [0].rank: %d, [0].local_size: %d\n", me, mpiComm[0].rank, mpiComm[0].local_size);
+		printf("MPI_Init_Thread: Me: %d, [0].rank: %d, [0].size: %d, [0].bufferPtr: %x\n", me, mpiComm[MPI_COMM_WORLD].rank, mpiComm[MPI_COMM_WORLD].size, mpiComm[MPI_COMM_WORLD].bufferPtr);
 #endif
 	//}
 	
@@ -151,7 +149,6 @@ int MPI_Init_thread( int *argc, char ***argv, int required, int *provided ){
 	 */
 	// Fake the multiple thread stuff with mutix, return the expected values.
 	*provided = MPI_THREAD_MULTIPLE;
-	//printf("MPI_Init_Thread: return.\n");
 		
 	return ret;
 	
@@ -184,9 +181,8 @@ int MPI_Abort (MPI_Comm comm, int errorcode){
  */
 int MPI_Barrier (MPI_Comm comm){
 
-	int ret = -1;//MPI_Barrier (comm);
-	// shmem_barrier_all (void)
-	// shmem_barrier (int PE_start, int logPE_stride, int PE_size, long *pSync)
+	int ret = MPI_SUCCESS;
+	shmem_barrier_all ();  // shmem_barrier (int PE_start, int logPE_stride, int PE_size, long *pSync)
 	return ret;
 }
 
@@ -209,21 +205,14 @@ int MPI_Bcast ( void *source, int count, MPI_Datatype dataType, int root, MPI_Co
 	my_pe = shmem_my_pe();
 	
 	
-	//i = mpiComm[root].local_size;
-	//i = mpiComm[0].local_size;
-		
-	target = createBuffer(dataType, count);
+	target = (void *)mpiComm[comm].bufferPtr;
 	if (target != NULL){
-		//		mpiComm[i].symmetricHeapPtr = target;
-		mpiComm[0].symmetricHeapPtr = target;
-#ifdef DEBUG
-		//printf ("Broadcast: my pe: %-8d target Addr: %x\n", my_pe, target);
-#endif
+        printf("mpiComm[comm].bufferPtr: %x\n", target);
+	}else{
+		printf("target is NULL\n\n");
+		return 1;
 	}
-	else {
-		return MPI_ERR_NO_MEM;
-	}
-
+	
 #ifdef DEBUG
 	for (i = 0; i < count; i += 1){
 	    //printf("MPI_Bcast1, dataType: %d, %d npes: %d, com's npes: %d\n", dataType, MPI_LONG, npes, i);
@@ -237,7 +226,7 @@ int MPI_Bcast ( void *source, int count, MPI_Datatype dataType, int root, MPI_Co
 	
 	shmem_barrier_all ();
 	
-	shmem_broadcast64( target, source, count, root, 0, 0, npes, pSync);
+	shmem_broadcast64( mpiComm[comm].bufferPtr, source, count, root, 0, 0, npes, pSync);
 	
 	
 #ifdef DEBUG
@@ -344,7 +333,7 @@ int MPI_Comm_size(MPI_Comm comm, int *size ){
  */
 int MPI_Allgather (void *sendbuf, int sendcount, MPI_Datatype sendtype, void *recvbuf, int recvcount, MPI_Datatype recvtype, MPI_Comm comm){
 	
-	int ret = MPI_Allgather ( sendbuf,  sendcount,  sendtype,  recvbuf,  recvcount,  recvtype,  comm);
+	int ret = 1;//MPI_Allgather ( sendbuf,  sendcount,  sendtype,  recvbuf,  recvcount,  recvtype,  mpiComm[comm]);
 	return ret;
 }
 
@@ -416,9 +405,73 @@ int MPI_Group_incl (MPI_Group group, int n, int *ranks, MPI_Group *newgroup){
  * @param 
  * @return 
  */
-int MPI_Recv (void *buf, int count, MPI_Datatype datatype, int source, int tag,MPI_Comm comm, MPI_Status *status){
+int MPI_Recv (void *buf, int count, MPI_Datatype datatype, int source, int tag, MPI_Comm comm, MPI_Status *status){
 	
-	int ret = 1;//MPI_Recv (buf, count, datatype, source, tag, comm, status);
+	int  ret;
+	void *recv_buf;
+	int my_pe = shmem_my_pe();
+	
+	// Really,  Does this go here?  
+	// Do we have to worry about previous data.
+	// Should I change the MPI_COMMD structure to have a recv_buffer then look to see if it needs to be increased?
+	recv_buf = mpiComm[my_pe].bufferPtr;
+	
+	if (recv_buf == NULL){
+		ret = 1;// some sort of proper error here
+	}
+	else {
+		ret = MPI_SUCCESS;
+	}
+	
+	// MPI_Send( send_buf, buf_len, Type, to_rank...);
+	// shmem_type_put( recv_buff, send_buff, buf_len, to_rank );
+	switch (datatype){
+		case MPI_CHAR:
+		case MPI_UNSIGNED_CHAR:
+		case MPI_BYTE:
+			shmem_char_get(recv_buf, buf, count, source);
+			break;
+		case MPI_SHORT:
+		case MPI_UNSIGNED_SHORT:
+			shmem_short_get(recv_buf, buf, count, source);
+			break;
+		case MPI_INT:
+		case MPI_UNSIGNED:
+			shmem_int_get(recv_buf, buf, count, source);
+			break;
+		case MPI_LONG:
+		case MPI_UNSIGNED_LONG:
+			shmem_long_get(recv_buf, buf, count, source);
+			break;
+		case MPI_FLOAT:
+			shmem_float_get(recv_buf, buf, count, source);
+			break;
+		case MPI_DOUBLE:
+			shmem_double_get(recv_buf, buf, count, source);
+			break;
+		case MPI_LONG_DOUBLE:
+			shmem_longdouble_get(recv_buf, buf, count, source);
+			break;
+		case MPI_LONG_LONG:
+			shmem_longlong_get(recv_buf, buf, count, source);
+			break;
+		default:
+			shmem_getmem(recv_buf, buf, count, source);
+			break;
+	}
+		
+#ifdef DEBUG
+	int i;
+	
+	//my_pe = shmem_my_pe();
+	
+	if (my_pe == source){
+		for (i=0; i<count;i++){
+			printf("MPI_Recv: PE: %d, recv_buffer[%d] = %d\n", my_pe, i, ((char *)recv_buf)[i]);
+		}
+	}
+#endif
+	
 	return ret;
 }
 
@@ -433,7 +486,74 @@ int MPI_Recv (void *buf, int count, MPI_Datatype datatype, int source, int tag,M
  */
 int MPI_Send (void *buf, int count, MPI_Datatype datatype, int dest, int tag, MPI_Comm comm){
 	
-	int ret = 1;//MPI_Send (buf, count, datatype, dest, tag, comm);
+	int  ret;
+	int my_pe = shmem_my_pe();
+	void *recv_buf;
+	
+	// Really,  Does this go here?  
+	// Do we have to worry about previous data.
+	// Should I change the MPI_COMMD structure to have a recv_buffer then look to see if it needs to be increased?
+	recv_buf = mpiComm[my_pe].bufferPtr;
+	
+	if (recv_buf == NULL){
+		ret = 1;// some sort of proper error here
+	}
+	else {
+		ret = MPI_SUCCESS;
+	}
+	
+	// MPI_Send( send_buf, buf_len, Type, to_rank...);
+	// shmem_type_put( recv_buff, send_buff, buf_len, to_rank );
+	switch (datatype){
+		case MPI_CHAR:
+		case MPI_UNSIGNED_CHAR:
+		case MPI_BYTE:
+			shmem_char_put(recv_buf, buf, count, dest);
+			break;
+		case MPI_SHORT:
+		case MPI_UNSIGNED_SHORT:
+			shmem_short_put(recv_buf, buf, count, dest);
+			break;
+		case MPI_INT:
+		case MPI_UNSIGNED:
+			shmem_int_put(recv_buf, buf, count, dest);
+			break;
+		case MPI_LONG:
+		case MPI_UNSIGNED_LONG:
+			shmem_long_put(recv_buf, buf, count, dest);
+			break;
+		case MPI_FLOAT:
+			shmem_float_put(recv_buf, buf, count, dest);
+			break;
+		case MPI_DOUBLE:
+			shmem_double_put(recv_buf, buf, count, dest);
+			break;
+		case MPI_LONG_DOUBLE:
+			shmem_longdouble_put(recv_buf, buf, count, dest);
+			break;
+		case MPI_LONG_LONG:
+			shmem_longlong_put(recv_buf, buf, count, dest);
+			break;
+		default:
+			shmem_putmem(recv_buf, buf, count, dest);
+			break;
+	}
+	
+	// and to be on the safe side:
+	shmem_fence();
+	
+#ifdef DEBUG
+	int i;
+	
+	//my_pe = shmem_my_pe();
+	
+	if (my_pe == dest){
+		for (i=0; i<count;i++){
+			printf("MPI_Send: PE: %d, recv_buffer[%d] = %d\n", my_pe, i, ((char *)recv_buf)[i]);
+		}
+	}
+#endif
+	
 	return ret;
 }
 
