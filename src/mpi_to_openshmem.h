@@ -18,10 +18,15 @@
 #include "Mlog/mlog.h"
 #include "Mlog/mlogfacs.h"
 
+#define MASTER			0
+#define MAX_NUM_COMM	10
+#define	MAX_BUFFER_SIZE	200000 //(in bytes)
+
 long pSync[_SHMEM_BCAST_SYNC_SIZE];
 
+
 /**** from mpi.h.in									****/
-#define MPI_COMM_WORLD		91
+#define MPI_COMM_WORLD		0
 
 #define MPI_SUCCESS          0      /* Successful return code */
 #define MPI_ERR_NO_MEM      34      /* Alloc_mem could not allocate memory */
@@ -77,36 +82,25 @@ typedef struct {
 /****                									****/
 
 
-// The following structures may be more than we actually need.
-// Pruning and growing will occur as time progresses.
-typedef struct MPID_Group_pmap_t {
-    int          lrank;     /* Local rank in group (between 0 and size-1) */
-    int          lpid;      /* local process id, from VCONN */
-    int          next_lpid; /* Index of next lpid (in lpid order) */
-    int          flag;      /* marker, used to implement group operations */
-} MPID_Group_pmap_t;
-
 typedef struct MPID_Group {
     int               size;           /* Size of a group */
     int               rank;           /* rank of this process relative to this group */
-    int               idx_of_first_lpid;
-    MPID_Group_pmap_t *lrank_to_lpid; /* Array mapping a local rank to local process number */
+    int               pe_rank;        /* original pe rank */
 } MPID_Group;
 
 typedef struct MPID_Comm {
-    //int				remote_size;  /* Value of MPI_Comm_(remote)_size */
-    int				rank;         /* Value of MPI_Comm_rank */
-    int				local_size;   /* Value of MPI_Comm_size for local group */
-    MPID_Group		*local_group;     /* Groups in communicator. */
-	//struct MPID_Comm	*node_comm;       /* Comm of processes in this comm that are on the same node as this process. */
-	//struct MPID_Comm	*node_roots_comm; /* Comm of root processes for other nodes. */
-	//struct MPID_Comm	*comm_next;       /* Provides a chain through all active communicators */
-	void			*symmetricHeapPtr;
+    int				rank;			/* Value of MPI_Comm_rank */
+    int				size;			/* Value of MPI_Comm_size for local group */
+    MPID_Group		*local_group;   /* Groups in communicator. */
+	void			*bufferPtr;
 } MPID_Comm;
 
-typedef int        MPI_Comm;
+MPID_Comm  mpiComm[MAX_NUM_COMM];
 typedef MPID_Group MPI_Group;
 typedef int        MPI_Request;
+typedef int		   MPI_Comm;
+
+MPI_Comm comm;
 
 /* Define all of the subroutines */
 //struct mpi_to_openshmem_t * ( int mpiType, int required, int *provided, int debugLevel ); 
