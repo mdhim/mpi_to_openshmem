@@ -15,60 +15,6 @@
 
 #define DEBUG 1
 
-
-/*void *createBuffer( MPI_Datatype dataType, int count){
-	
-	void *buffer;
-	//int npes;
-	
-	//npes = mpiComm[MASTER].local_size;
-	
-	switch (dataType){
-		case MPI_CHAR:
-			buffer = (char*)shmalloc( sizeof (char)*count); 
-			break;
-		case MPI_UNSIGNED_CHAR:
-		case MPI_BYTE:
-			buffer = (unsigned char*)shmalloc( sizeof (unsigned char)*count); 
-			break;
-		case MPI_SHORT:
-			buffer = (short*)shmalloc( sizeof (short)*count); 
-			break;
-		case MPI_UNSIGNED_SHORT:
-			buffer = (unsigned short*)shmalloc( sizeof (unsigned short)*count); 
-			break;
-		case MPI_INT:
-			buffer = (int*)shmalloc( sizeof (int)*count); 
-			break;
-		case MPI_UNSIGNED:
-			buffer = (unsigned int*)shmalloc( sizeof (unsigned int)*count); 
-			break;
-		case MPI_LONG:
-			buffer = (long*)shmalloc( sizeof (long)*count); 
-			break;
-		case MPI_UNSIGNED_LONG:
-			buffer = (unsigned long*)shmalloc( sizeof (unsigned long)*count); 
-			break;
-		case MPI_FLOAT:
-			buffer = (float*)shmalloc( sizeof (float)*count); 
-			break;
-		case MPI_DOUBLE:
-			buffer = (double*)shmalloc( sizeof (double)*count); 
-			break;
-		case MPI_LONG_DOUBLE:
-			buffer = (long double*)shmalloc( sizeof (long double)*count); 
-			break;
-		case MPI_LONG_LONG:
-			buffer = (long long*)shmalloc( sizeof (long long)*count); 
-			break;
-		default:
-			buffer = NULL; 
-			break;
-	}
-	
-	return buffer;
-}*/
-
 /**
  * MPI_Init
  * Initializes for Openshmem
@@ -120,9 +66,15 @@ int MPI_Init_thread( int *argc, char ***argv, int required, int *provided ){
 	//printf("MPI_Init_Thread: after start_pes, set up rank and local size\n");
 	
 	// Set up the rank and local_size (npes)
-	mpiComm[MPI_COMM_WORLD].rank      = shmem_my_pe();
+	mpiComm[MPI_COMM_WORLD].rank      = my_pe;
 	mpiComm[MPI_COMM_WORLD].size      = npes;
 	mpiComm[MPI_COMM_WORLD].bufferPtr = sharedBuffer;
+	
+	if (shmem_addr_accessible( sharedBuffer, my_pe) ) {
+		printf("MPI_Init_thread::Buffer is in a symmetric segment for target pe: %d\n", my_pe);
+	}else{
+		printf("MPI_Init_thread::Buffer is NOT in a symmetric segment for target pe: %d\n", my_pe);
+	}
 		
 #ifdef DEBUG
 		int me = _my_pe();
@@ -414,50 +366,58 @@ int MPI_Recv (void *buf, int count, MPI_Datatype datatype, int source, int tag, 
 	// Really,  Does this go here?  
 	// Do we have to worry about previous data.
 	// Should I change the MPI_COMMD structure to have a recv_buffer then look to see if it needs to be increased?
-	recv_buf = mpiComm[my_pe].bufferPtr;
+	recv_buf = mpiComm[comm].bufferPtr;
 	
 	if (recv_buf == NULL){
-		ret = 1;// some sort of proper error here
+	  ret = 1;// some sort of proper error here
 	}
 	else {
-		ret = MPI_SUCCESS;
+	  ret = MPI_SUCCESS;
 	}
 	
-	// MPI_Send( send_buf, buf_len, Type, to_rank...);
-	// shmem_type_put( recv_buff, send_buff, buf_len, to_rank );
+	if (shmem_addr_accessible( recv_buf, my_pe) ) {
+	  printf("MPI_Recv::Buffer is in a symmetric segment, pe: %d\n", my_pe);
+	  if (shmem_addr_accessible( buf, my_pe ))
+	    printf("MPI_Recv::target buff %x, is in symmetric segment, pe: %d\n", buf, my_pe);
+	  else
+	    printf("MPI_Recv::target buff %x, is NOT symmetric segment, pe: %d\n", buf, my_pe);
+	}else{
+	  printf("MPI_Recv::Buffer is NOT in a symmetric segment, pe: %d\n", my_pe);
+	}
+	
 	switch (datatype){
 		case MPI_CHAR:
 		case MPI_UNSIGNED_CHAR:
 		case MPI_BYTE:
-			shmem_char_get(recv_buf, buf, count, source);
-			break;
+		  shmem_char_get(buf, recv_buf, count, source);
+		  break;
 		case MPI_SHORT:
 		case MPI_UNSIGNED_SHORT:
-			shmem_short_get(recv_buf, buf, count, source);
-			break;
+		  shmem_short_get(buf, recv_buf, count, source);
+		  break;
 		case MPI_INT:
 		case MPI_UNSIGNED:
-			shmem_int_get(recv_buf, buf, count, source);
-			break;
+		  shmem_int_get(buf, recv_buf, count, source);
+		  break;
 		case MPI_LONG:
 		case MPI_UNSIGNED_LONG:
-			shmem_long_get(recv_buf, buf, count, source);
-			break;
+		  shmem_long_get(buf, recv_buf, count, source);
+		  break;
 		case MPI_FLOAT:
-			shmem_float_get(recv_buf, buf, count, source);
-			break;
+		  shmem_float_get(buf, recv_buf, count, source);
+		  break;
 		case MPI_DOUBLE:
-			shmem_double_get(recv_buf, buf, count, source);
-			break;
+		  shmem_double_get(buf, recv_buf, count, source);
+		  break;
 		case MPI_LONG_DOUBLE:
-			shmem_longdouble_get(recv_buf, buf, count, source);
-			break;
+		  shmem_longdouble_get(buf, recv_buf, count, source);
+		  break;
 		case MPI_LONG_LONG:
-			shmem_longlong_get(recv_buf, buf, count, source);
-			break;
+		  shmem_longlong_get(buf, recv_buf, count, source);
+		  break;
 		default:
-			shmem_getmem(recv_buf, buf, count, source);
-			break;
+		  shmem_getmem(buf, recv_buf, count, source);
+		  break;
 	}
 		
 #ifdef DEBUG
@@ -467,7 +427,7 @@ int MPI_Recv (void *buf, int count, MPI_Datatype datatype, int source, int tag, 
 	
 	if (my_pe == source){
 		for (i=0; i<count;i++){
-			printf("MPI_Recv: PE: %d, recv_buffer[%d] = %d\n", my_pe, i, ((char *)recv_buf)[i]);
+			printf("MPI_Recv: PE: %d, recv_buffer[%d] = %d\n", my_pe, i, ((int *)recv_buf)[i]);
 		}
 	}
 #endif
@@ -493,7 +453,7 @@ int MPI_Send (void *buf, int count, MPI_Datatype datatype, int dest, int tag, MP
 	// Really,  Does this go here?  
 	// Do we have to worry about previous data.
 	// Should I change the MPI_COMMD structure to have a recv_buffer then look to see if it needs to be increased?
-	recv_buf = mpiComm[my_pe].bufferPtr;
+	recv_buf = mpiComm[comm].bufferPtr;
 	
 	if (recv_buf == NULL){
 		ret = 1;// some sort of proper error here
@@ -501,40 +461,58 @@ int MPI_Send (void *buf, int count, MPI_Datatype datatype, int dest, int tag, MP
 	else {
 		ret = MPI_SUCCESS;
 	}
-	
-	// MPI_Send( send_buf, buf_len, Type, to_rank...);
-	// shmem_type_put( recv_buff, send_buff, buf_len, to_rank );
+	printf("MPI_Send: PE: %d, recv_buffer Addr = %x\n", my_pe, recv_buf);
+
+        if (shmem_addr_accessible( recv_buf, my_pe) ) {
+          printf("MPI_SEND::Buffer is in a symmetric segment, pe: %d\n", my_pe);
+          if (shmem_addr_accessible( buf, my_pe ))
+            printf("MPI_SEND::target buf %x, is in symmetric segment, pe: %d\n", buf, my_pe);
+          else
+            printf("MPI_SEND::target buf %x, is NOT symmetric segment, pe: %d\n", buf, my_pe);
+        }else{
+          printf("MPI_SEND::Buffer is NOT in a symmetric segment, pe: %d\n", my_pe);
+        }
+
 	switch (datatype){
 		case MPI_CHAR:
 		case MPI_UNSIGNED_CHAR:
 		case MPI_BYTE:
+			printf("MPI_Send: bytish datatype: %d\n", datatype);
 			shmem_char_put(recv_buf, buf, count, dest);
 			break;
 		case MPI_SHORT:
 		case MPI_UNSIGNED_SHORT:
+			printf("MPI_Send: short datatype: %d\n", datatype);
 			shmem_short_put(recv_buf, buf, count, dest);
 			break;
 		case MPI_INT:
 		case MPI_UNSIGNED:
-			shmem_int_put(recv_buf, buf, count, dest);
+			printf("MPI_Send: int datatype: %d\n", datatype);
+			//shmem_int_put(recv_buf, buf, count, dest);
 			break;
 		case MPI_LONG:
 		case MPI_UNSIGNED_LONG:
+			printf("MPI_Send: long datatype: %d\n", datatype);
 			shmem_long_put(recv_buf, buf, count, dest);
 			break;
 		case MPI_FLOAT:
+			printf("MPI_Send: float datatype: %d\n", datatype);
 			shmem_float_put(recv_buf, buf, count, dest);
 			break;
 		case MPI_DOUBLE:
+			printf("MPI_Send: double datatype: %d\n", datatype);
 			shmem_double_put(recv_buf, buf, count, dest);
 			break;
 		case MPI_LONG_DOUBLE:
+			printf("MPI_Send: longDouble datatype: %d\n", datatype);
 			shmem_longdouble_put(recv_buf, buf, count, dest);
 			break;
 		case MPI_LONG_LONG:
+			printf("MPI_Send: longlong datatype: %d\n", datatype);
 			shmem_longlong_put(recv_buf, buf, count, dest);
 			break;
 		default:
+			printf("MPI_Send: not here datatype: %d\n", datatype);
 			shmem_putmem(recv_buf, buf, count, dest);
 			break;
 	}
@@ -545,12 +523,8 @@ int MPI_Send (void *buf, int count, MPI_Datatype datatype, int dest, int tag, MP
 #ifdef DEBUG
 	int i;
 	
-	//my_pe = shmem_my_pe();
-	
-	if (my_pe == dest){
-		for (i=0; i<count;i++){
-			printf("MPI_Send: PE: %d, recv_buffer[%d] = %d\n", my_pe, i, ((char *)recv_buf)[i]);
-		}
+	for (i=0; i<count;i++){
+		printf("MPI_Send: PE: %d, buf[%d] = %d to recvBuf: %x \n", my_pe, i, ((int *)buf)[i], recv_buf);
 	}
 #endif
 	
