@@ -5,6 +5,7 @@
  *  Created by gingery on 10/28/13.                                                                                            
  *  Copyright 2013 LANL. All rights reserved.                                                                                  
  *                                                                                                                             
+ * Tests single int send/receive                                                                                               
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,8 +17,8 @@ int main(int argc, char *argv[])
 {
   int provided, ret, size, rank;
   int nextpe;
-  char src;
-  char *dest;
+  int src;
+  int *dest;
 
   MPI_Status status;
 
@@ -32,38 +33,31 @@ int main(int argc, char *argv[])
 
   nextpe = (rank + 1) % size;
 
-  if (rank == 0)
-    src = 'a';
-  else if (rank == 1)
-    src = 'b';
-  else
-    src = 'c';
+  src = rank;
 
-  //  src = rank;                                                                                                              
-
-  dest = (char *) shmalloc (sizeof (*dest));
+  dest = (int *) shmalloc (sizeof (*dest));
   if (dest == NULL){
     printf("Couldn't shmalloc.\n");
   }
 
-  *dest = 'z';
+  *dest = 99;
   shmem_barrier_all ();
 
   //shmem_int_put (dest, &src, 1, nextpe);                                                                                     
-  MPI_Send(&src, 1, MPI_CHAR, nextpe, 123, MPI_COMM_WORLD);
+  MPI_Send(&src, 1, MPI_INT, nextpe, 123, MPI_COMM_WORLD);
   // shmem_int_get (dest, &src, 1, nextpe);                                                                                    
-  MPI_Recv(dest, 1, MPI_CHAR, nextpe, 123, MPI_COMM_WORLD, &status);
+  MPI_Recv(dest, 1, MPI_INT, nextpe, 123, MPI_COMM_WORLD, &status);
 
   shmem_barrier_all ();
 
-  printf ("%4d: got %4c, %4c: ", rank, *dest,src);
+  printf ("%4d: got %4d, %4d: ", rank, *dest,src);
   if (*dest == rank)
     {
       printf ("CORRECT");
     }
   else
     {
-      printf ("WRONG, expected %c", rank);
+      printf ("WRONG, expected %d", rank);
     }
   printf ("\n");
 
@@ -72,4 +66,3 @@ int main(int argc, char *argv[])
   return 0;
 
 }
-
