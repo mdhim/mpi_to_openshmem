@@ -463,42 +463,33 @@ int MPI_Send (void *buf, int count, MPI_Datatype datatype, int dest, int tag, MP
 		case MPI_CHAR:
 		case MPI_UNSIGNED_CHAR:
 		case MPI_BYTE:
-			printf("MPI_Send: bytish datatype: %d\n", datatype);
 			shmem_char_put(recv_buf, buf, count, dest);
 			break;
 		case MPI_SHORT:
 		case MPI_UNSIGNED_SHORT:
-			printf("MPI_Send: short datatype: %d\n", datatype);
 			shmem_short_put(recv_buf, buf, count, dest);
 			break;
 		case MPI_INT:
 		case MPI_UNSIGNED:
-			printf("MPI_Send: int datatype: %d\n", datatype);
 			shmem_int_put(recv_buf, buf, count, dest);
 			break;
 		case MPI_LONG:
 		case MPI_UNSIGNED_LONG:
-			printf("MPI_Send: long datatype: %d\n", datatype);
 			shmem_long_put(recv_buf, buf, count, dest);
 			break;
 		case MPI_FLOAT:
-			printf("MPI_Send: float datatype: %d\n", datatype);
 			shmem_float_put(recv_buf, buf, count, dest);
 			break;
 		case MPI_DOUBLE:
-			printf("MPI_Send: double datatype: %d\n", datatype);
 			shmem_double_put(recv_buf, buf, count, dest);
 			break;
 		case MPI_LONG_DOUBLE:
-			printf("MPI_Send: longDouble datatype: %d\n", datatype);
 			shmem_longdouble_put(recv_buf, buf, count, dest);
 			break;
 		case MPI_LONG_LONG:
-			printf("MPI_Send: longlong datatype: %d\n", datatype);
 			shmem_longlong_put(recv_buf, buf, count, dest);
 			break;
 		default:
-			printf("MPI_Send: not here datatype: %d\n", datatype);
 			shmem_putmem(recv_buf, buf, count, dest);
 			break;
 	}
@@ -512,30 +503,93 @@ int MPI_Send (void *buf, int count, MPI_Datatype datatype, int dest, int tag, MP
 /**
  * MPI_Irecv
  * Nonblocking receive for a message
+ * Which doesn't exist in openShmem...
+ * So I am ignoring the requestComm and have no idea how to do MPI_Test.
  *
- buf		initial address of receive buffer (choice) 
- count		number of elements in receive buffer (integer) 
- datatype	datatype of each receive buffer element (handle) 
- source		rank of source (integer) 
- tag		message tag (integer) 
- comm		communicator (handle) 
- 
- Output Parameter
- 
- request	communication request (handle) 
- * @param 
- * @param 
- * @param 
- * @return 
+ * @param buf		initial address of receive buffer (choice) 
+ * @param count		number of elements in receive buffer (integer) 
+ * @param datatype	datatype of each receive buffer element (handle) 
+ * @param source		rank of source (integer) 
+ * @param tag		message tag (integer) 
+ * @param comm		communicator (handle) 
+ * 
+ * Output Parameter
+ * 
+ * @param request	communication request (handle) 
+ *  
+ * @return status
  */
 int MPI_Irecv (void *buf, int count, MPI_Datatype datatype, int source, int tag, MPI_Comm comm, MPI_Request *requestComm){
-	int ret = 1;//MPI_Irecv (buf, count, datatype, source, tag, comm, requestComm);
+	
+	int  ret;
+	void *recv_buf;
+	int my_pe = shmem_my_pe();
+	
+	recv_buf = mpiComm[comm].bufferPtr;
+	
+	if (recv_buf == NULL){
+		ret = 1;// some sort of proper error here
+		mlog(MPI_DBG, "Error: No symmetric memory for PE: %d\n", my_pe);
+	}
+	else {
+		ret = MPI_SUCCESS;
+	}
+	
+#ifdef DEBUG
+	if (shmem_addr_accessible( recv_buf, my_pe) ) {
+		mlog(MPI_DBG, "MPI_Irecv::Buffer is in a symmetric segment, pe: %d\n", my_pe);
+		if (shmem_addr_accessible( buf, my_pe ))
+			mlog(MPI_DBG, "MPI_Irecv::target buff %x, is in symmetric segment, pe: %d\n", buf, my_pe);
+		else
+			mlog(MPI_DBG, "MPI_Irecv::target buff %x, is NOT symmetric segment, pe: %d\n", buf, my_pe);
+	}else{
+		mlog(MPI_DBG, "MPI_Irecv::Buffer is NOT in a symmetric segment, pe: %d\n", my_pe);
+	}
+#endif
+	
+	switch (datatype){
+		case MPI_CHAR:
+		case MPI_UNSIGNED_CHAR:
+		case MPI_BYTE:
+			shmem_char_get(buf, recv_buf, count, source);
+			break;
+		case MPI_SHORT:
+		case MPI_UNSIGNED_SHORT:
+			shmem_short_get(buf, recv_buf, count, source);
+			break;
+		case MPI_INT:
+		case MPI_UNSIGNED:
+			shmem_int_get(buf, recv_buf, count, source);
+			break;
+		case MPI_LONG:
+		case MPI_UNSIGNED_LONG:
+			shmem_long_get(buf, recv_buf, count, source);
+			break;
+		case MPI_FLOAT:
+			shmem_float_get(buf, recv_buf, count, source);
+			break;
+		case MPI_DOUBLE:
+			shmem_double_get(buf, recv_buf, count, source);
+			break;
+		case MPI_LONG_DOUBLE:
+			shmem_longdouble_get(buf, recv_buf, count, source);
+			break;
+		case MPI_LONG_LONG:
+			shmem_longlong_get(buf, recv_buf, count, source);
+			break;
+		default:
+			shmem_getmem(buf, recv_buf, count, source);
+			break;
+	}
+	
 	return ret;
 }
 
 /**
  * MPI_Isend
- * Performs a nonblocking send
+ * Performs a nonblocking send. which really doesnt exist in openShmem...
+ * So I am ignoring the requestComm and have no idea how to do MPI_Test.
+ * However, we will not do the fence at the end (to speed things up...)
  *
  * @param 
  * @param 
@@ -544,7 +598,66 @@ int MPI_Irecv (void *buf, int count, MPI_Datatype datatype, int source, int tag,
  */
 int MPI_Isend(void *buf, int count, MPI_Datatype datatype, int dest, int tag, MPI_Comm comm, MPI_Request *requestComm){
 	
-	int ret = 1;//MPI_Isend (buf, count, datatype, dest, tag, comm, requestComm);
+	int  ret;
+	int my_pe = shmem_my_pe();
+	void *recv_buf;
+	
+	recv_buf = mpiComm[comm].bufferPtr;
+	
+	if (recv_buf == NULL){
+		ret = 1;// some sort of proper error here
+		mlog(MPI_DBG, "Error: No symmetric memory for PE: %d\n", my_pe);
+	}
+	else {
+		ret = MPI_SUCCESS;
+	}
+	mlog(MPI_DBG,"MPI_Isend: PE: %d, recv_buffer Addr = %x\n", my_pe, recv_buf);
+	
+	if (shmem_addr_accessible( recv_buf, my_pe) ) {
+		 mlog(MPI_DBG,"MPI_Isend::Buffer is in a symmetric segment, pe: %d\n", my_pe);
+		if (shmem_addr_accessible( buf, my_pe ))
+            mlog(MPI_DBG,"MPI_Isend::target buf %x, is in symmetric segment, pe: %d\n", buf, my_pe);
+		else
+            mlog(MPI_DBG,"MPI_Isend::target buf %x, is NOT symmetric segment, pe: %d\n", buf, my_pe);
+	}else{
+		mlog(MPI_DBG,"MPI_Isend::Buffer is NOT in a symmetric segment, pe: %d\n", my_pe);
+	}
+	
+	switch (datatype){
+		case MPI_CHAR:
+		case MPI_UNSIGNED_CHAR:
+		case MPI_BYTE:
+			shmem_char_put(recv_buf, buf, count, dest);
+			break;
+		case MPI_SHORT:
+		case MPI_UNSIGNED_SHORT:
+			shmem_short_put(recv_buf, buf, count, dest);
+			break;
+		case MPI_INT:
+		case MPI_UNSIGNED:
+			shmem_int_put(recv_buf, buf, count, dest);
+			break;
+		case MPI_LONG:
+		case MPI_UNSIGNED_LONG:
+			shmem_long_put(recv_buf, buf, count, dest);
+			break;
+		case MPI_FLOAT:
+			shmem_float_put(recv_buf, buf, count, dest);
+			break;
+		case MPI_DOUBLE:
+			shmem_double_put(recv_buf, buf, count, dest);
+			break;
+		case MPI_LONG_DOUBLE:
+			shmem_longdouble_put(recv_buf, buf, count, dest);
+			break;
+		case MPI_LONG_LONG:
+			shmem_longlong_put(recv_buf, buf, count, dest);
+			break;
+		default:
+			shmem_putmem(recv_buf, buf, count, dest);
+			break;
+	}
+	
 	return ret;
 }
 
