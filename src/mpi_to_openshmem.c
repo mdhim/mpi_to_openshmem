@@ -71,15 +71,15 @@ int MPI_Init_thread( int *argc, char ***argv, int required, int *provided ){
 	mpiComm[MPI_COMM_WORLD].bufferPtr = sharedBuffer;
 	
 	if (shmem_addr_accessible( sharedBuffer, my_pe) ) {
-		printf("MPI_Init_thread::Buffer is in a symmetric segment for target pe: %d\n", my_pe);
+		mlog(MPI_DBG, "MPI_Init_thread::Buffer is in a symmetric segment for target pe: %d\n", my_pe);
 	}else{
-		printf("MPI_Init_thread::Buffer is NOT in a symmetric segment for target pe: %d\n", my_pe);
+		mlog(MPI_DBG, "MPI_Init_thread::Buffer is NOT in a symmetric segment for target pe: %d\n", my_pe);
 	}
 		
 #ifdef DEBUG
 		int me = _my_pe();
 		//printf("MPI_Init_Thread: Me: %d, [%d].rank: %d, [%d].local_size: %d\n", me, i, mpiComm[i].rank, i, mpiComm[i].local_size);
-		printf("MPI_Init_Thread: Me: %d, [0].rank: %d, [0].size: %d, [0].bufferPtr: %x\n", me, mpiComm[MPI_COMM_WORLD].rank, mpiComm[MPI_COMM_WORLD].size, mpiComm[MPI_COMM_WORLD].bufferPtr);
+		mlog(MPI_DBG, "MPI_Init_Thread: Me: %d, [0].rank: %d, [0].size: %d, [0].bufferPtr: %x\n", me, mpiComm[MPI_COMM_WORLD].rank, mpiComm[MPI_COMM_WORLD].size, mpiComm[MPI_COMM_WORLD].bufferPtr);
 #endif
 	//}
 	
@@ -167,7 +167,7 @@ int MPI_Bcast ( void *source, int count, MPI_Datatype dataType, int root, MPI_Co
 	
 #ifdef DEBUG
 	for (i = 0; i < count; i += 1){
-	    //printf("MPI_Bcast1, dataType: %d, %d npes: %d, com's npes: %d\n", dataType, MPI_LONG, npes, i);
+	    //mlog(MPI_DBG, "MPI_Bcast1, dataType: %d, %d npes: %d, com's npes: %d\n", dataType, MPI_LONG, npes, i);
 		((long*)target)[i] = -999;                                                                        
 	}
 #endif
@@ -183,7 +183,7 @@ int MPI_Bcast ( void *source, int count, MPI_Datatype dataType, int root, MPI_Co
 	
 #ifdef DEBUG
 	for (i = 0; i < count; i++){
-		printf ("MPI_Bcast1: my pe: %-8d source: %ld target: %ld\n", my_pe, ((long*)source)[i], ((long*)target)[i]);                                                
+		mlog(MPI_DBG, "MPI_Bcast1: my pe: %-8d source: %ld target: %ld\n", my_pe, ((long*)source)[i], ((long*)target)[i]);                                                
 	}
 #endif
 	
@@ -363,27 +363,27 @@ int MPI_Recv (void *buf, int count, MPI_Datatype datatype, int source, int tag, 
 	void *recv_buf;
 	int my_pe = shmem_my_pe();
 	
-	// Really,  Does this go here?  
-	// Do we have to worry about previous data.
-	// Should I change the MPI_COMMD structure to have a recv_buffer then look to see if it needs to be increased?
 	recv_buf = mpiComm[comm].bufferPtr;
 	
 	if (recv_buf == NULL){
 	  ret = 1;// some sort of proper error here
+		mlog(MPI_DBG, "Error: No symmetric memory for PE: %d\n", my_pe);
 	}
 	else {
 	  ret = MPI_SUCCESS;
 	}
 	
+#ifdef DEBUG
 	if (shmem_addr_accessible( recv_buf, my_pe) ) {
-	  printf("MPI_Recv::Buffer is in a symmetric segment, pe: %d\n", my_pe);
+	  mlog(MPI_DBG, "MPI_Recv::Buffer is in a symmetric segment, pe: %d\n", my_pe);
 	  if (shmem_addr_accessible( buf, my_pe ))
-	    printf("MPI_Recv::target buff %x, is in symmetric segment, pe: %d\n", buf, my_pe);
+	    mlog(MPI_DBG, "MPI_Recv::target buff %x, is in symmetric segment, pe: %d\n", buf, my_pe);
 	  else
-	    printf("MPI_Recv::target buff %x, is NOT symmetric segment, pe: %d\n", buf, my_pe);
+	    mlog(MPI_DBG, "MPI_Recv::target buff %x, is NOT symmetric segment, pe: %d\n", buf, my_pe);
 	}else{
-	  printf("MPI_Recv::Buffer is NOT in a symmetric segment, pe: %d\n", my_pe);
+	  mlog(MPI_DBG, "MPI_Recv::Buffer is NOT in a symmetric segment, pe: %d\n", my_pe);
 	}
+#endif
 	
 	switch (datatype){
 		case MPI_CHAR:
@@ -419,18 +419,6 @@ int MPI_Recv (void *buf, int count, MPI_Datatype datatype, int source, int tag, 
 		  shmem_getmem(buf, recv_buf, count, source);
 		  break;
 	}
-		
-#ifdef DEBUG
-	int i;
-	
-	//my_pe = shmem_my_pe();
-	
-	if (my_pe == source){
-		for (i=0; i<count;i++){
-			printf("MPI_Recv: PE: %d, recv_buffer[%d] = %d\n", my_pe, i, ((int *)recv_buf)[i]);
-		}
-	}
-#endif
 	
 	return ret;
 }
@@ -450,13 +438,11 @@ int MPI_Send (void *buf, int count, MPI_Datatype datatype, int dest, int tag, MP
 	int my_pe = shmem_my_pe();
 	void *recv_buf;
 	
-	// Really,  Does this go here?  
-	// Do we have to worry about previous data.
-	// Should I change the MPI_COMMD structure to have a recv_buffer then look to see if it needs to be increased?
 	recv_buf = mpiComm[comm].bufferPtr;
 	
 	if (recv_buf == NULL){
 		ret = 1;// some sort of proper error here
+		mlog(MPI_DBG, "Error: No symmetric memory for PE: %d\n", my_pe);
 	}
 	else {
 		ret = MPI_SUCCESS;
@@ -464,13 +450,13 @@ int MPI_Send (void *buf, int count, MPI_Datatype datatype, int dest, int tag, MP
 	printf("MPI_Send: PE: %d, recv_buffer Addr = %x\n", my_pe, recv_buf);
 
         if (shmem_addr_accessible( recv_buf, my_pe) ) {
-          printf("MPI_SEND::Buffer is in a symmetric segment, pe: %d\n", my_pe);
+          mlog(MPI_DBG, "MPI_SEND::Buffer is in a symmetric segment, pe: %d\n", my_pe);
           if (shmem_addr_accessible( buf, my_pe ))
-            printf("MPI_SEND::target buf %x, is in symmetric segment, pe: %d\n", buf, my_pe);
+            mlog(MPI_DBG, "MPI_SEND::target buf %x, is in symmetric segment, pe: %d\n", buf, my_pe);
           else
-            printf("MPI_SEND::target buf %x, is NOT symmetric segment, pe: %d\n", buf, my_pe);
+            mlog(MPI_DBG, "MPI_SEND::target buf %x, is NOT symmetric segment, pe: %d\n", buf, my_pe);
         }else{
-          printf("MPI_SEND::Buffer is NOT in a symmetric segment, pe: %d\n", my_pe);
+          mlog(MPI_DBG, "MPI_SEND::Buffer is NOT in a symmetric segment, pe: %d\n", my_pe);
         }
 
 	switch (datatype){
@@ -488,7 +474,7 @@ int MPI_Send (void *buf, int count, MPI_Datatype datatype, int dest, int tag, MP
 		case MPI_INT:
 		case MPI_UNSIGNED:
 			printf("MPI_Send: int datatype: %d\n", datatype);
-			//shmem_int_put(recv_buf, buf, count, dest);
+			shmem_int_put(recv_buf, buf, count, dest);
 			break;
 		case MPI_LONG:
 		case MPI_UNSIGNED_LONG:
@@ -519,14 +505,6 @@ int MPI_Send (void *buf, int count, MPI_Datatype datatype, int dest, int tag, MP
 	
 	// and to be on the safe side:
 	shmem_fence();
-	
-#ifdef DEBUG
-	int i;
-	
-	for (i=0; i<count;i++){
-		printf("MPI_Send: PE: %d, buf[%d] = %d to recvBuf: %x \n", my_pe, i, ((int *)buf)[i], recv_buf);
-	}
-#endif
 	
 	return ret;
 }
