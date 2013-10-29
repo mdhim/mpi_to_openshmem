@@ -16,9 +16,7 @@ TESTER = tester
 CFLAGS	= -lmdhim -L/usr/lib64 -lmpi_to_openshmem ${OPENSHMEM_ROOT}/lib/libopenshmem.so -lgasnet-ibv-par -libverbs -lm -lpthread -lstdc++ ${LEVEL_DB_ROOT}/libleveldb.a
 #CFLAGS  = -lmpich -lmdhim -lm -lpthread -lstdc++ ${LEVEL_DB_ROOT}/libleveldb.a
 
-
-#all:   hello testStart broadcast1 simple2 simple put-get puts-gets put-getn put-getp put-del bput-bget bput-bgetn bput-bdel mdhintst
-all:	startPesExample broadcast1 testStart
+all:	startPesExample broadcast1 testStart testSendRcv sendRcvChar
 
 startPesExample: $(SINGLE)/startPesExample.c
 	$(CC) $< $(CINC) $(CLIBS) $(CFLAGS) -o $(SINGLE)/$@
@@ -28,45 +26,13 @@ testStart: $(SINGLE)/testStart.c
 
 broadcast1: $(SINGLE)/broadcast1.c
 	$(CC) $< $(CINC) $(CLIBS) $(CFLAGS) -o $(SINGLE)/$@
-	
-hello: $(SINGLE)/hello.c
+
+testSendRcv: $(SINGLE)/testSendRcv.c
 	$(CC) $< $(CINC) $(CLIBS) $(CFLAGS) -o $(SINGLE)/$@
 
-simple2: $(SINGLE)/simple2.c
+sendRcvChar: $(SINGLE)/sendRcvChar.c
 	$(CC) $< $(CINC) $(CLIBS) $(CFLAGS) -o $(SINGLE)/$@
-
-simple: $(SINGLE)/simple.c
-	$(CC) $< $(CINC) $(CLIBS) $(CFLAGS) -o $(SINGLE)/$@
-
-put-get: $(SINGLE)/put-get.c 
-	$(CC) $< $(CINC) $(CLIBS) $(CFLAGS) -o $(SINGLE)/$@
-
-puts-gets: $(SINGLE)/puts-gets.c 
-	$(CC) $< $(CINC) $(CLIBS) $(CFLAGS) -o $(SINGLE)/$@
-
-put-getn: $(SINGLE)/put-getn.c 
-	$(CC) $< $(CINC) $(CLIBS) $(CFLAGS) -o $(SINGLE)/$@
-
-put-getp: $(SINGLE)/put-getp.c 
-	$(CC) $< $(CINC) $(CLIBS) $(CFLAGS) -o $(SINGLE)/$@
-
-put-del: $(SINGLE)/put-del.c 
-	$(CC) $< $(CINC) $(CLIBS) $(CFLAGS) -o $(SINGLE)/$@
-
-bput-bget: $(SINGLE)/bput-bget.c 
-	$(CC) $< $(CINC) $(CLIBS) $(CFLAGS) -o $(SINGLE)/$@
-
-bput-bgetn: $(SINGLE)/bput-bgetn.c 
-	$(CC) $< $(CINC) $(CLIBS) $(CFLAGS) -o $(SINGLE)/$@
-
-bput-bdel: $(SINGLE)/bput-bdel.c 
-	$(CC) $< $(CINC) $(CLIBS) $(CFLAGS) -o $(SINGLE)/$@
-
-mdhimtst: $(TESTER)/mdhimtst.c
-	$(CC) $< $(CINC) $(CLIBS) $(CFLAGS) -o $(TESTER)/$@
 
 clean:
-	rm -rf $(SINGLE)/put-get $(SINGLE)/bput-bget $(SINGLE)/put-del $(SINGLE)/bput-bdel\
-               $(TESTER)/mdhimtst $(SINGLE)/put-getn \
-	       $(SINGLE)/put-getp $(SINGLE)/puts-gets \
-               $(SINGLE)/bput-bgetn
+	rm -rf $(SINGLE)/startPesExample $(SINGLE)/broadcast1 $(SINGLE)/testStart $(SINGLE)/testSendRcv\
+               $(SINGLE)/sendRcvChar
