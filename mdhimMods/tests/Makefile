@@ -16,7 +16,8 @@ TESTER = tester
 CFLAGS	= -lmdhim -L/usr/lib64 -lmpi_to_openshmem ${OPENSHMEM_ROOT}/lib/libopenshmem.so -lgasnet-ibv-par -libverbs -lm -lpthread -lstdc++ ${LEVEL_DB_ROOT}/libleveldb.a
 #CFLAGS  = -lmpich -lmdhim -lm -lpthread -lstdc++ ${LEVEL_DB_ROOT}/libleveldb.a
 
-all:	startPesExample broadcast1 testStart testSendRcv sendRcvChar
+#all:	startPesExample broadcast1 testStart testSendRcv sendRcvChar iput
+all:	isendiRecv
 
 startPesExample: $(SINGLE)/startPesExample.c
 	$(CC) $< $(CINC) $(CLIBS) $(CFLAGS) -o $(SINGLE)/$@
@@ -32,6 +33,10 @@ testSendRcv: $(SINGLE)/testSendRcv.c
 
 sendRcvChar: $(SINGLE)/sendRcvChar.c
 	$(CC) $< $(CINC) $(CLIBS) $(CFLAGS) -o $(SINGLE)/$@
+
+isendiRecv: $(SINGLE)/isendiRecv
+	$(CC) $< $(CINC) $(CLIBS) $(CFLAGS) -o $(SINGLE)/$@
+
 
 clean:
 	rm -rf $(SINGLE)/startPesExample $(SINGLE)/broadcast1 $(SINGLE)/testStart $(SINGLE)/testSendRcv\
