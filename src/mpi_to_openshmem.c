@@ -294,46 +294,70 @@ int MPI_Comm_size(MPI_Comm comm, int *size ){
  * @return 
  */
 int MPI_Allgather (void *sendbuf, int sendcount, MPI_Datatype sendtype, void *recvbuf, int recvcount, MPI_Datatype recvtype, MPI_Comm comm){
-	int ret = 1;//MPI_Allgather (sendbuf,  sendcount,  sendtype,  recvbuf,  recvcount,  recvtype,  comm);
-	return ret;
+	int i;
+	int numPes, my_pe;
+	int bytes;
+	int isCollect32;    // see which collect we use, 1=collect32, 0=collect64, -1=error
+	
+	numPes = _num_pes();
+	my_pe = shmem_my_pe();
+	
+	// Verify that you have valid buffer pointer and space:
+	if ( (recvbuf == NULL) || (sendbuf == NULL) ){
+		mlog(MPI_ERR, "Error: buffer has an invalid pointer (it's NULL) PE: %d\n", my_pe);
+		return MPI_ERR_BUFFER;
+	}
+	
+	if ( !shmem_addr_accessible( recvbuf, my_pe) || !shmem_addr_accessible( sendbuf, my_pe) ) {
+		printf("MPI_Allgather::Buffer is not in a symmetric segment, pe: %d\n", my_pe);
+		mlog(MPI_ERR, "Error: Buffer is not in a symmetric segment, %d\n", my_pe);
+		return MPI_ERR_BUFFER;
+	}
+	
+	// Check to see if the datatype (send) is correct...
+	bytes = sizeof (int);
+	
+	if ( (sendtype == MPI_INT) || (sendtype == MPI_UNSIGNED) ){
+		if (bytes == INT_32) {
+			isCollect32 = 1;
+		}
+		else if (bytes == INT_64) {
+			isCollect32 = 0;
+		}
+		else isCollect32 = -1;
+	}
+	else if ( (sendtype == MPI_LONG) || (sendtype == MPI_UNSIGNED_LONG) ){
+		if (bytes == INT_32) {
+			isCollect32 = 1;
+		}
+		else if (bytes == INT_64) {
+			isCollect32 = 0;
+		}
+		else isCollect32 = -1;
+	}	
+	if ( isCollect32 == -1 ){
+		printf("MPI_Allgather:: wrong datatype, can only handle integers.\n");
+		mlog(MPI_ERR, "Invalid datatype in sendtype, must be MPI_INT\n");
+		return MPI_ERR_TYPE;
+	}			
+	
+	// Do what opneshmem needs to do:
+	for (i = 0; i < _SHMEM_BCAST_SYNC_SIZE; i += 1){
+		pSync[i] = _SHMEM_SYNC_VALUE;
+    }
+	
+	MPI_Barrier( MPI_COMM_WORLD );
+	
+	if ( isCollect32 ){
+		shmem_collect32(recvbuf, sendbuf, sendcount, masterRank, 0, numPes, pSync);
+	}
+	else {
+		shmem_collect64(recvbuf, sendbuf, sendcount, masterRank, 0, numPes, pSync);
+	}	
+	
+	return MPI_SUCCESS;
 }
-/*
- * Description
- *  
- *  mpi.gather and mpi.gatherv (vector variant) gather each member's message to the member specified by the argument root. 
- *  The root member receives the messages and stores them in rank order. mpi.allgather and mpi.allgatherv are the same as 
- *  mpi.gather and mpi.gatherv except that all members receive the result instead of just the root.
- *  Usage
- *  
- *  mpi.gather(x, type, rdata, root = 0, comm = 1) 
- *  mpi.gatherv(x, type, rdata, rcounts, root = 0, comm = 1) 
- *  
- *  mpi.allgather(x, type, rdata, comm = 1) 
- *  mpi.allgatherv(x, type, rdata, rcounts, comm = 1) 
- *  
- *  Arguments
- *  x 	data to be gathered. Must be the same type.
- *  type 	1 for integer and 2 for double. Others are not supported.
- *  rdata 	the receive buffer. Must be the same type as the sender and big enough to include all message gathered.
- *  rcounts 	int vector specifying the length of each message.
- *  root 	rank of the receiver
- *  comm 	a communicator number
- *
- *  Details
- *  
- *  For mpi.gather and mpi.allgather, the message to be gathered must be the same dim and the same type. 
- *  The receive buffer can be prepared as either integer(size * dim) or double(size * dim), where size is 
- *  the total number of members in a comm. For mpi.gatherv and mpi.allgatherv, the message to be gathered 
- *  can have different dims but must be the same type. The argument rcounts records these different dims 
- *  into an integer vector in rank order. Then the receive buffer can be prepared as either 
- *  integer(sum(rcounts)) or double(sum(rcounts)).
- *
- *  Value
- *  
- *  For mpi.gather or mpi.gatherv, it returns the gathered message for the root member. For other members, 
- *  it returns what is in rdata, i.e., rdata (or rcounts) is ignored. For mpi.allgather or mpi.allgatherv, 
- *  it returns the gathered message for all members.
- */
+
 
 /**
  * MPI_Gather
@@ -378,44 +402,7 @@ int MPI_Gather (void *sendbuf, int sendcount, MPI_Datatype sendtype, void *recvb
 	// Check to see if the datatype (send) is correct...
 	bytes = sizeof (int);
 	
-	if ( (sendtype == MPI_INT) || (sendtype == MPI_UNSIGNED) ){
-		if (bytes == INT_32) {
-			isCollect32 = 1;
-		}
-		else if (bytes == INT_64) {
-			isCollect32 = 0;
-		}
-		else isCollect32 = -1;
-	}
-	else if ( (sendtype == MPI_LONG) || (sendtype == MPI_UNSIGNED_LONG) ){
-		if (bytes == INT_32) {
-			isCollect32 = 1;
-		}
-		else if (bytes == INT_64) {
-			isCollect32 = 0;
-		}
-		else isCollect32 = -1;
-	}	
-	if ( isCollect32 == -1 ){
-		printf("MPI_Gather:: wrong datatype, can only handle integers.\n");
-		mlog(MPI_ERR, "Invalid datatype in sendtype, must be MPI_INT\n");
-		return MPI_ERR_TYPE;
-	}			
-	
-	// Do what opneshmem needs to do:
-	for (i = 0; i < _SHMEM_BCAST_SYNC_SIZE; i += 1){
-		pSync[i] = _SHMEM_SYNC_VALUE;
-    }
 
-	MPI_Barrier( MPI_COMM_WORLD );
-	
-	if ( isCollect32 ){
-		shmem_collect32(recvbuf, sendbuf, sendcount, masterRank, 0, numPes, pSync);
-	}
-	else {
-		shmem_collect64(recvbuf, sendbuf, sendcount, masterRank, 0, numPes, pSync);
-	}	
-		
 	return MPI_SUCCESS;
 }
 
@@ -619,7 +606,7 @@ int MPI_Send (void *buf, int count, MPI_Datatype datatype, int dest, int tag, MP
  * @param buf		initial address of receive buffer (choice) 
  * @param count		number of elements in receive buffer (integer) 
  * @param datatype	datatype of each receive buffer element (handle) 
- * @param source		rank of source (integer) 
+ * @param source	rank of source (integer) 
  * @param tag		message tag (integer) 
  * @param comm		communicator (handle) 
  * 
@@ -653,6 +640,8 @@ int MPI_Irecv (void *buf, int count, MPI_Datatype datatype, int source, int tag,
 		mlog(MPI_DBG, "MPI_Irecv::Buffer is NOT in a symmetric segment, pe: %d\n", my_pe);
 	}
 #endif
+	
+	// ToDo: add in info to requestCom to track the get in MPI_Test
 	
 	switch (datatype){
 		case MPI_CHAR:
@@ -726,7 +715,9 @@ int MPI_Isend(void *buf, int count, MPI_Datatype datatype, int dest, int tag, MP
 	}else{
 		mlog(MPI_DBG,"MPI_Isend::Buffer is NOT in a symmetric segment, pe: %d\n", my_pe);
 	}
-	
+
+	// ToDo: add in info to requestCom to track the put in MPI_Test
+
 	switch (datatype){
 		case MPI_CHAR:
 		case MPI_UNSIGNED_CHAR:
@@ -823,6 +814,8 @@ int MPI_Test (MPI_Request *request, int *flag, MPI_Status *status){
 	
 	int ret = MPI_SUCCESS;//MPI_Test (request, flag, status);
 
+	// ToDo: Change this to polling the buffer to see if send/recv complete.
+	
 	shmem_barrier_all ();
 	// Fence and quiet sometimes do the same thing...
 	shmem_fence();   // Ensures ordering of outgoing write (put) operations to a single PE
