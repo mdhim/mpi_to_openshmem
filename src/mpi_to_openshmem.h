@@ -19,7 +19,10 @@
 #include "Mlog/mlogfacs.h"
 
 #define MASTER			0
-#define MAX_NUM_COMM	10
+#define MAX_NUM_COMM   10
+#define INT_32			4	// number of bytes for a 32 bit integer
+#define INT_64			8	// number of bytes for a 64 bit integer
+
 #define	MAX_BUFFER_SIZE	200000 //(in bytes)
 
 long pSync[_SHMEM_BCAST_SYNC_SIZE];
@@ -29,8 +32,83 @@ long pSync[_SHMEM_BCAST_SYNC_SIZE];
 #define MPI_COMM_WORLD		0
 
 #define MPI_SUCCESS          0      /* Successful return code */
-#define MPI_ERR_NO_MEM      34      /* Alloc_mem could not allocate memory */
-
+#define MPI_ERR_NO_MEM       1      /* Alloc_mem could not allocate memory */
+#define MPI_ERR_BUFFER       2		// Invalid buffer pointer. Usually a null buffer where one is not valid.
+#define MPI_ERR_COUNT        3		// Invalid count argument
+#define MPI_ERR_TYPE         4		// Invalid datatype argument
+/*
+ MPI_SUCCESS              0      Successful return code.
+ MPI_ERR_BUFFER           1      Invalid buffer pointer.
+ MPI_ERR_COUNT            2      Invalid count argument.
+ MPI_ERR_TYPE             3      Invalid datatype argument.
+ MPI_ERR_TAG              4      Invalid tag argument.
+ MPI_ERR_COMM             5      Invalid communicator.
+ MPI_ERR_RANK             6      Invalid rank.
+ MPI_ERR_REQUEST          7      Invalid MPI_Request handle.
+ MPI_ERR_ROOT             7      Invalid root.
+ MPI_ERR_GROUP            8      Null group passed to function.
+ MPI_ERR_OP               9      Invalid operation.
+ MPI_ERR_TOPOLOGY        10      Invalid topology.
+ MPI_ERR_DIMS            11      Illegal dimension argument.
+ MPI_ERR_ARG             12      Invalid argument.
+ MPI_ERR_UNKNOWN         13      Unknown error.
+ MPI_ERR_TRUNCATE        14      Message truncated on receive.
+ MPI_ERR_OTHER           15      Other error; use Error_string.
+ MPI_ERR_INTERN          16      Internal error code.
+ MPI_ERR_IN_STATUS       17      Look in status for error value.
+ MPI_ERR_PENDING         18      Pending request.
+ MPI_ERR_ACCESS          19      Permission denied.
+ MPI_ERR_AMODE           20      Unsupported amode passed to open.
+ 
+ MPI_ERR_ASSERT          21      Invalid assert.
+ MPI_ERR_BAD_FILE        22      Invalid file name (for example,
+ path name too long).
+ MPI_ERR_BASE            23      Invalid base.
+ MPI_ERR_CONVERSION      24      An error occurred in a user-supplied
+ data-conversion function.
+ MPI_ERR_DISP            25      Invalid displacement.
+ MPI_ERR_DUP_DATAREP     26      Conversion functions could not
+ be registered because a data
+ representation identifier that was
+ already defined was passed to
+ MPI_REGISTER_DATAREP.
+ MPI_ERR_FILE_EXISTS     27      File exists.
+ MPI_ERR_FILE_IN_USE     28      File operation could not be
+ completed, as the file is currently
+ open by some process.
+ MPI_ERR_FILE            29
+ MPI_ERR_INFO_KEY        30      Illegal info key.
+ MPI_ERR_INFO_NOKEY      31      No such key.
+ MPI_ERR_INFO_VALUE      32      Illegal info value.
+ MPI_ERR_INFO            33      Invalid info object.
+ MPI_ERR_IO              34      I/O error.
+ MPI_ERR_KEYVAL          35      Illegal key value.
+ MPI_ERR_LOCKTYPE        36      Invalid locktype.
+ MPI_ERR_NAME            37      Name not found.
+ MPI_ERR_NO_MEM          38      Memory exhausted.
+ MPI_ERR_NOT_SAME        39
+ MPI_ERR_NO_SPACE        40      Not enough space.
+ MPI_ERR_NO_SUCH_FILE    41      File (or directory) does not exist.
+ MPI_ERR_PORT            42      Invalid port.
+ MPI_ERR_QUOTA           43      Quota exceeded.
+ MPI_ERR_READ_ONLY       44      Read-only file system.
+ MPI_ERR_RMA_CONFLICT    45      Conflicting accesses to window.
+ 
+ MPI_ERR_RMA_SYNC        46      Erroneous RMA synchronization.
+ MPI_ERR_SERVICE         47      Invalid publish/unpublish.
+ MPI_ERR_SIZE            48      Invalid size.
+ MPI_ERR_SPAWN           49      Error spawning.
+ MPI_ERR_UNSUPPORTED_DATAREP
+ 50      Unsupported datarep passed to
+ MPI_File_set_view.
+ MPI_ERR_UNSUPPORTED_OPERATION
+ 51      Unsupported operation, such as
+ seeking on a file that supports
+ only sequential access.
+ MPI_ERR_WIN             52      Invalid window.
+ MPI_ERR_LASTCODE        53      Last error code.
+ MPI_ERR_SYSRESOURCE     -2      Out of resources
+ */
 typedef int MPI_Datatype;
 #define MPI_CHAR           ((MPI_Datatype)1)
 #define MPI_UNSIGNED_CHAR  ((MPI_Datatype)2)
