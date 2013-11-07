@@ -379,7 +379,7 @@ int MPI_Allgather (void *sendbuf, int sendcount, MPI_Datatype sendtype, void *re
  * @return 
  */
 int MPI_Gather (void *sendbuf, int sendcount, MPI_Datatype sendtype, void *recvbuf, int recvcount, MPI_Datatype recvtype, int root, MPI_Comm comm){
-	int i;
+	//int i;
 	int numPes, my_pe;
 	
 	numPes = _num_pes();
@@ -396,17 +396,17 @@ int MPI_Gather (void *sendbuf, int sendcount, MPI_Datatype sendtype, void *recvb
 		mlog(MPI_ERR, "Error: Buffer is not in a symmetric segment, %d\n", my_pe);
 		return MPI_ERR_BUFFER;
 	}
-		
+
+	shmem_barrier_all ();
+	
 	switch (sendtype){
 		case MPI_CHAR:
 		case MPI_UNSIGNED_CHAR:
 		case MPI_BYTE:
-			shmem_barrier_all ();
 			shmem_char_put(&(((char*)recvbuf)[sendcount*my_pe]), sendbuf, sendcount, root);
 			break;
 		case MPI_SHORT:
 		case MPI_UNSIGNED_SHORT:
-			shmem_barrier_all ();
 			shmem_short_put(&(((short*)recvbuf)[sendcount*my_pe]), sendbuf, sendcount, root);
 			break;
 		case MPI_INT:
@@ -417,7 +417,6 @@ int MPI_Gather (void *sendbuf, int sendcount, MPI_Datatype sendtype, void *recvb
 			//	printf (" %d", ((int*)recvbuf)[i]);
 			//}
 			//printf ("\n");
-			shmem_barrier_all ();
 			shmem_int_put(&(((int*)recvbuf)[sendcount*my_pe]), sendbuf, sendcount, root);
 			//printf ("Debug:  - from %d to recvbuf[%d] =", root, my_pe);
 			//for (i = 0; i < 20; i += 1) {
@@ -427,27 +426,21 @@ int MPI_Gather (void *sendbuf, int sendcount, MPI_Datatype sendtype, void *recvb
 			break;
 		case MPI_LONG:
 		case MPI_UNSIGNED_LONG:
-			shmem_barrier_all ();
 			shmem_long_put(&(((long*)recvbuf)[sendcount*my_pe]), sendbuf, sendcount, root);
 			break;
 		case MPI_FLOAT:
-			shmem_barrier_all ();
 			shmem_float_put(&(((float*)recvbuf)[sendcount*my_pe]), sendbuf, sendcount, root);
 			break;
 		case MPI_DOUBLE:
-			shmem_barrier_all ();
 			shmem_double_put(&(((double*)recvbuf)[sendcount*my_pe]), sendbuf, sendcount, root);
 			break;
 		case MPI_LONG_DOUBLE:
-			shmem_barrier_all ();
 			shmem_longdouble_put(&(((long double*)recvbuf)[sendcount*my_pe]), sendbuf, sendcount, root);
 			break;
 		case MPI_LONG_LONG:
-			shmem_barrier_all ();
 			shmem_longlong_put(&(((long long*)recvbuf)[sendcount*my_pe]), sendbuf, sendcount, root);
 			break;
 		default:
-			shmem_barrier_all ();
 			shmem_putmem(&(((void*)recvbuf)[sendcount*my_pe]), sendbuf, sendcount, root);
 			break;
 	}
@@ -482,10 +475,88 @@ int MPI_Gather (void *sendbuf, int sendcount, MPI_Datatype sendtype, void *recvb
  
  * @return 
  */
-int MPI_Gatherv (void *sendbuf, int sendcount, MPI_Datatype sendtype, void *recvbuf, int *recvcount, int *displs, MPI_Datatype recvtype, int masterRank, MPI_Comm comm){
+int MPI_Gatherv (void *sendbuf, int sendcount, MPI_Datatype sendtype, void *recvbuf, int *recvcount, int *displs, MPI_Datatype recvtype, int root, MPI_Comm comm){
 
-	int ret = 1;//MPI_Gatherv (sendbuf,  sendcount,  sendtype, recvbuf, recvcount, displs,  recvtype,  masterRank,  comm);
-	return ret;
+	//int i;
+	int numPes, my_pe;
+	
+	numPes = _num_pes();
+	my_pe = shmem_my_pe();
+	
+	// Verify that you have valid buffer pointer and space:
+	if ( (recvbuf == NULL) || (sendbuf == NULL) ){
+		mlog(MPI_ERR, "Error: buffer has an invalid pointer (it's NULL) PE: %d\n", my_pe);
+		return MPI_ERR_BUFFER;
+	}
+	
+	if ( !shmem_addr_accessible( recvbuf, my_pe) || !shmem_addr_accessible( sendbuf, my_pe) ) {
+		printf("MPI_Gather::Buffer is not in a symmetric segment, pe: %d\n", my_pe);
+		mlog(MPI_ERR, "Error: Buffer is not in a symmetric segment, pe: %d\n", my_pe);
+		return MPI_ERR_BUFFER;
+	}
+	// Need to check the sendcount not larger than recvcount...
+	if (sendcount < recvcount[my_pe]){
+		mlog(MPI_ERR, "Error: send buffer is smaller than number of items requested, pe: %d\n", my_pe);
+		return MPI_ERR_SIZE;
+	}
+
+	shmem_barrier_all ();
+	switch (sendtype){
+		case MPI_CHAR:
+		case MPI_UNSIGNED_CHAR:
+		case MPI_BYTE:
+			shmem_char_put(&(((char *)recvbuf)[displs[my_pe]]), sendbuf, recvcount[my_pe], root);
+			break;
+		case MPI_SHORT:
+		case MPI_UNSIGNED_SHORT:
+			shmem_short_put(&(((short *)recvbuf)[displs[my_pe]]), sendbuf, recvcount[my_pe], root);
+			break;
+		case MPI_INT:
+		case MPI_UNSIGNED:
+			/** debug
+			printf ("gatherv - recvcount[%d->%d] = %d, sendbuf[] =", my_pe, root, ((int*)recvcount)[my_pe] );
+			for (i = 0; i < ((int*)recvcount)[my_pe]; i += 1) {
+				printf (" %d", ((int*)sendbuf)[i]);
+			}
+			printf ("\n");
+			printf ("gatherv - displs[%d->%d] = %d, recvcount[] = %d\n", my_pe, root, displs[my_pe], recvcount[my_pe] );
+			 */
+			shmem_int_put(&(((int *)recvbuf)[displs[my_pe]]), sendbuf, recvcount[my_pe], root);
+			/** debug
+			 if (my_pe == root){
+				printf ("gatherv - recvbuf[%d->%d] =", my_pe, root);
+				for (i = 0; i < 13; i++) {
+					printf (" %d", ((int *)recvbuf)[i]);
+				}
+				printf ("\n");
+			}
+			 **/
+			break;
+		case MPI_LONG:
+		case MPI_UNSIGNED_LONG:
+			shmem_long_put(&(((long *)recvbuf)[displs[my_pe]]), sendbuf, recvcount[my_pe], root);
+			break;
+		case MPI_FLOAT:
+			shmem_float_put(&(((float *)recvbuf)[displs[my_pe]]), sendbuf, recvcount[my_pe], root);
+			break;
+		case MPI_DOUBLE:
+			shmem_double_put(&(((double *)recvbuf)[displs[my_pe]]), sendbuf, recvcount[my_pe], root);
+			break;
+		case MPI_LONG_DOUBLE:
+			shmem_longdouble_put(&(((long double *)recvbuf)[displs[my_pe]]), sendbuf, recvcount[my_pe], root);
+			break;
+		case MPI_LONG_LONG:
+			shmem_longlong_put(&(((long long *)recvbuf)[displs[my_pe]]), sendbuf, recvcount[my_pe], root);
+			break;
+		default:
+			shmem_putmem(&(((void *)recvbuf)[displs[my_pe]]), sendbuf, recvcount[my_pe], root);
+			break;
+	}
+	
+	// and to be on the safe side:
+	shmem_barrier_all ();
+	
+	return MPI_SUCCESS;
 }
 
 /**
