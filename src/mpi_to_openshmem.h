@@ -36,6 +36,7 @@ long pSync[_SHMEM_BCAST_SYNC_SIZE];
 #define MPI_ERR_BUFFER       2		// Invalid buffer pointer. Usually a null buffer where one is not valid.
 #define MPI_ERR_COUNT        3		// Invalid count argument
 #define MPI_ERR_TYPE         4		// Invalid datatype argument
+#define MPI_ERR_SIZE         5      // Invalid size.
 /*
  MPI_SUCCESS              0      Successful return code.
  MPI_ERR_BUFFER           1      Invalid buffer pointer.
@@ -96,7 +97,6 @@ long pSync[_SHMEM_BCAST_SYNC_SIZE];
  
  MPI_ERR_RMA_SYNC        46      Erroneous RMA synchronization.
  MPI_ERR_SERVICE         47      Invalid publish/unpublish.
- MPI_ERR_SIZE            48      Invalid size.
  MPI_ERR_SPAWN           49      Error spawning.
  MPI_ERR_UNSUPPORTED_DATAREP
  50      Unsupported datarep passed to
