@@ -23,6 +23,9 @@
 #define INT_32			4	// number of bytes for a 32 bit integer
 #define INT_64			8	// number of bytes for a 64 bit integer
 
+#define SEND_TYPE		0
+#define RECEIVE_TYPE	1
+
 #define	MAX_BUFFER_SIZE	200000 //(in bytes)
 
 long pSync[_SHMEM_BCAST_SYNC_SIZE];
@@ -173,9 +176,17 @@ typedef struct MPID_Comm {
 	void			*bufferPtr;
 } MPID_Comm;
 
+typedef struct MPID_Request{
+	int				requestType;	/* either SEND_TYPE or RECEIVE_TYPE */
+	int				rank;			/* Value of MPI_Comm_rank */
+	MPI_Datatype	dataType;		/* type of the data sent/received */
+	void			*lastBufPtr;	/* pointer to the last item in the buffer sent/rcvd */
+	void			*expected;		/* pointer to expected value in the last address */
+} MPID_Request;
+
 MPID_Comm  mpiComm[MAX_NUM_COMM];
 typedef MPID_Group MPI_Group;
-typedef int        MPI_Request;
+typedef MPID_Request       MPI_Request;
 typedef int		   MPI_Comm;
 
 MPI_Comm comm;
