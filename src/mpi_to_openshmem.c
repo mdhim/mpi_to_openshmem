@@ -44,7 +44,8 @@ int MPI_Init( int *argc, char ***argv ){
  * @param argc		Pointer to the number of arguments 
  * @param argv		Pointer to the argument vector 
  * @param required	Level of desired thread support provided
- * @param provided	Level of provided thread support  
+ * @param provided	Level of provided thread support 
+ *
  * @return MPI_SUCCESS, this always succeeds.
  */
 
@@ -143,10 +144,18 @@ int MPI_Barrier (MPI_Comm comm){
  * Broadcasts a message from the process with rank "root" to all other processes
  *	of the communicator.
  *
- * @param 
- * @param 
- * @param 
- * @return 
+ * Input/Output Parameter
+ *
+ * @param  buffer		starting address of buffer (choice) 
+ *
+ * Input Parameters
+ *
+ * @param  count		number of entries in buffer (integer) 
+ * @param  datatype	data type of buffer (handle) 
+ * @param  root		rank of broadcast root (integer) 
+ * @param  comm		communicator (handle) 
+ *
+ * @return status
  */
 int MPI_Bcast ( void *source, int count, MPI_Datatype dataType, int root, MPI_Comm comm){
 	
@@ -241,7 +250,8 @@ int MPI_Comm_group (MPI_Comm comm,	MPI_Group *group){
  *
  * @param comm communicator(handle)
  * @param rank of the calling process in the group of comm (integer)
- * @return 
+ *
+ * @return status
  */
 int MPI_Comm_rank (MPI_Comm comm, int *rank){
 	
@@ -260,7 +270,8 @@ int MPI_Comm_rank (MPI_Comm comm, int *rank){
  *
  * @param comm communicator(handle)
  * @param size number of processes in the group of comm (integer) 
- * @return 
+ *
+ * @return status
  */
 int MPI_Comm_size(MPI_Comm comm, int *size ){
 	
@@ -291,7 +302,7 @@ int MPI_Comm_size(MPI_Comm comm, int *size ){
  * @param  recvtype		data type of receive buffer elements (handle) 
  * @param  comm			communicator (handle)  
  *  
- * @return 
+ * @return status
  */
 int MPI_Allgather (void *sendbuf, int sendcount, MPI_Datatype sendtype, void *recvbuf, int recvcount, MPI_Datatype recvtype, MPI_Comm comm){
 	int i;
@@ -376,7 +387,7 @@ int MPI_Allgather (void *sendbuf, int sendcount, MPI_Datatype sendtype, void *re
  * @param  recvtype		data type of receive buffer elements (handle) 
  * @param  comm			communicator (handle)  
  *  
- * @return 
+ * @return status
  */
 int MPI_Gather (void *sendbuf, int sendcount, MPI_Datatype sendtype, void *recvbuf, int recvcount, MPI_Datatype recvtype, int root, MPI_Comm comm){
 	//int i;
@@ -403,7 +414,7 @@ int MPI_Gather (void *sendbuf, int sendcount, MPI_Datatype sendtype, void *recvb
 		case MPI_CHAR:
 		case MPI_UNSIGNED_CHAR:
 		case MPI_BYTE:
-			shmem_char_put(&(((char*)recvbuf)[sendcount*my_pe]), sendbuf, sendcount, root);
+			shmem_putmem(&(((char*)recvbuf)[sendcount*my_pe]), sendbuf, sendcount, root);
 			break;
 		case MPI_SHORT:
 		case MPI_UNSIGNED_SHORT:
@@ -411,12 +422,6 @@ int MPI_Gather (void *sendbuf, int sendcount, MPI_Datatype sendtype, void *recvb
 			break;
 		case MPI_INT:
 		case MPI_UNSIGNED:
-			//shmem_int_put (recvbuf, sendbuf, sendcount, my_pe);
-			//printf ("Debug: to PE: %d recvbuf[%d/%d] =", root, my_pe, numPes);
-			//for (i = 0; i < 20; i += 1) {
-			//	printf (" %d", ((int*)recvbuf)[i]);
-			//}
-			//printf ("\n");
 			shmem_int_put(&(((int*)recvbuf)[sendcount*my_pe]), sendbuf, sendcount, root);
 			//printf ("Debug:  - from %d to recvbuf[%d] =", root, my_pe);
 			//for (i = 0; i < 20; i += 1) {
@@ -441,7 +446,7 @@ int MPI_Gather (void *sendbuf, int sendcount, MPI_Datatype sendtype, void *recvb
 			shmem_longlong_put(&(((long long*)recvbuf)[sendcount*my_pe]), sendbuf, sendcount, root);
 			break;
 		default:
-			shmem_putmem(&(((void*)recvbuf)[sendcount*my_pe]), sendbuf, sendcount, root);
+			shmem_putmem(&(((char*)recvbuf)[sendcount*my_pe]), sendbuf, sendcount, root);
 			break;
 	}
 	
@@ -455,25 +460,20 @@ int MPI_Gather (void *sendbuf, int sendcount, MPI_Datatype sendtype, void *recvb
  * MPI_Gatherv
  * Gathers into specified locations from all processes in a group
  *
- * @param 
- * @param 
- * @param
- 
- sendbuf		starting address of send buffer (choice) 
- sendcount		number of elements in send buffer (integer) 
- sendtype		data type of send buffer elements (handle) 
- recvcounts		integer array (of length group size) containing the number of elements that are received from each process (significant only at root) 
- displs			integer array (of length group size). Entry i specifies the displacement relative to recvbuf at which to place the incoming data from process i (significant only at root) 
- recvtype		data type of recv buffer elements (significant only at root) (handle) 
- root			rank of receiving process (integer) 
- comm			communicator (handle) 
- 
- Output Parameter
- 
- recvbuf		address of receive buffer (choice, significant only at root) 
- 
- 
- * @return 
+ * @param  sendbuf		starting address of send buffer (choice) 
+ * @param  sendcount	number of elements in send buffer (integer) 
+ * @param  sendtype		data type of send buffer elements (handle) 
+ * @param  recvcounts	integer array (of length group size) containing the number of elements that are received from each process (significant only at root) 
+ * @param  displs		integer array (of length group size). Entry i specifies the displacement relative to recvbuf at which to place the incoming data from process i (significant only at root) 
+ * @param  recvtype		data type of recv buffer elements (significant only at root) (handle) 
+ * @param  root			rank of receiving process (integer) 
+ * @param  comm			communicator (handle) 
+ *
+ * Output Parameter
+ *
+ * @param   recvbuf		address of receive buffer (choice, significant only at root) 
+ *
+ * @return status
  */
 int MPI_Gatherv (void *sendbuf, int sendcount, MPI_Datatype sendtype, void *recvbuf, int *recvcount, int *displs, MPI_Datatype recvtype, int root, MPI_Comm comm){
 
@@ -505,7 +505,7 @@ int MPI_Gatherv (void *sendbuf, int sendcount, MPI_Datatype sendtype, void *recv
 		case MPI_CHAR:
 		case MPI_UNSIGNED_CHAR:
 		case MPI_BYTE:
-			shmem_char_put(&(((char *)recvbuf)[displs[my_pe]]), sendbuf, recvcount[my_pe], root);
+			shmem_putmem(&(((char *)recvbuf)[displs[my_pe]]), sendbuf, recvcount[my_pe], root);
 			break;
 		case MPI_SHORT:
 		case MPI_UNSIGNED_SHORT:
@@ -513,14 +513,6 @@ int MPI_Gatherv (void *sendbuf, int sendcount, MPI_Datatype sendtype, void *recv
 			break;
 		case MPI_INT:
 		case MPI_UNSIGNED:
-			/** debug
-			printf ("gatherv - recvcount[%d->%d] = %d, sendbuf[] =", my_pe, root, ((int*)recvcount)[my_pe] );
-			for (i = 0; i < ((int*)recvcount)[my_pe]; i += 1) {
-				printf (" %d", ((int*)sendbuf)[i]);
-			}
-			printf ("\n");
-			printf ("gatherv - displs[%d->%d] = %d, recvcount[] = %d\n", my_pe, root, displs[my_pe], recvcount[my_pe] );
-			 */
 			shmem_int_put(&(((int *)recvbuf)[displs[my_pe]]), sendbuf, recvcount[my_pe], root);
 			/** debug
 			 if (my_pe == root){
@@ -549,7 +541,7 @@ int MPI_Gatherv (void *sendbuf, int sendcount, MPI_Datatype sendtype, void *recv
 			shmem_longlong_put(&(((long long *)recvbuf)[displs[my_pe]]), sendbuf, recvcount[my_pe], root);
 			break;
 		default:
-			shmem_putmem(&(((void *)recvbuf)[displs[my_pe]]), sendbuf, recvcount[my_pe], root);
+			shmem_putmem(&(((char *)recvbuf)[displs[my_pe]]), sendbuf, recvcount[my_pe], root);
 			break;
 	}
 	
@@ -566,7 +558,7 @@ int MPI_Gatherv (void *sendbuf, int sendcount, MPI_Datatype sendtype, void *recv
  * @param 
  * @param 
  * @param 
- * @return 
+ * @return status
  */
 int MPI_Group_incl (MPI_Group group, int n, int *ranks, MPI_Group *newgroup){
 	
@@ -578,10 +570,20 @@ int MPI_Group_incl (MPI_Group group, int n, int *ranks, MPI_Group *newgroup){
  * MPI_Recv
  * Blocking receive for a message
  *
- * @param 
- * @param 
- * @param 
- * @return 
+ * Output Parameters
+ *
+ * @param  buf		initial address of receive buffer (choice) 
+ * @param  status	status object (Status) 
+ *
+ * Input Parameters
+ *
+ * @param count		maximum number of elements in receive buffer (integer) 
+ * @param  datatype	datatype of each receive buffer element (handle) 
+ * @param  source	rank of source (integer) 
+ * @param  tag		message tag (integer) 
+ * @param  comm		communicator (handle) * @return 
+ *
+ * @return status
  */
 int MPI_Recv (void *buf, int count, MPI_Datatype datatype, int source, int tag, MPI_Comm comm, MPI_Status *status){
 	
@@ -612,7 +614,7 @@ int MPI_Recv (void *buf, int count, MPI_Datatype datatype, int source, int tag, 
 		case MPI_CHAR:
 		case MPI_UNSIGNED_CHAR:
 		case MPI_BYTE:
-		  shmem_char_get(buf, recv_buf, count, source);
+		  shmem_getmem(buf, recv_buf, count, source);
 		  break;
 		case MPI_SHORT:
 		case MPI_UNSIGNED_SHORT:
@@ -651,9 +653,14 @@ int MPI_Recv (void *buf, int count, MPI_Datatype datatype, int source, int tag, 
  * Performs a blocking send
  *
  * @param 
- * @param 
- * @param 
- * @return 
+ * @param  buf		initial address of send buffer (choice) 
+ * @param  count	number of elements in send buffer (nonnegative integer) 
+ * @param  datatype	datatype of each send buffer element (handle) 
+ * @param  dest		rank of destination (integer) 
+ * @param  tag		message tag (integer) 
+ * @param  comm		communicator (handle) 
+ *  
+ * @return status
  */
 int MPI_Send (void *buf, int count, MPI_Datatype datatype, int dest, int tag, MPI_Comm comm){
 	
@@ -683,7 +690,7 @@ int MPI_Send (void *buf, int count, MPI_Datatype datatype, int dest, int tag, MP
 		case MPI_CHAR:
 		case MPI_UNSIGNED_CHAR:
 		case MPI_BYTE:
-			shmem_char_put(recv_buf, buf, count, dest);
+			shmem_putmem(recv_buf, buf, count, dest);
 			break;
 		case MPI_SHORT:
 		case MPI_UNSIGNED_SHORT:
@@ -723,8 +730,6 @@ int MPI_Send (void *buf, int count, MPI_Datatype datatype, int dest, int tag, MP
 /**
  * MPI_Irecv
  * Nonblocking receive for a message
- * Which doesn't exist in openShmem...
- * So I am ignoring the requestComm and have no idea how to do MPI_Test.
  *
  * @param buf		initial address of receive buffer (choice) 
  * @param count		number of elements in receive buffer (integer) 
@@ -739,7 +744,7 @@ int MPI_Send (void *buf, int count, MPI_Datatype datatype, int dest, int tag, MP
  *  
  * @return status
  */
-int MPI_Irecv (void *buf, int count, MPI_Datatype datatype, int source, int tag, MPI_Comm comm, MPI_Request *requestComm){
+int MPI_Irecv (void *buf, int count, MPI_Datatype datatype, int source, int tag, MPI_Comm comm, MPI_Request *request){
 	
 	int  ret;
 	void *recv_buf;
@@ -764,13 +769,15 @@ int MPI_Irecv (void *buf, int count, MPI_Datatype datatype, int source, int tag,
 	}
 #endif
 	
-	// ToDo: add in info to requestCom to track the get in MPI_Test
+	// Get the address (this is of the current PE's buffer space)
+	(*request).expected   = shmalloc( sizeof(int) );                             
+	(*request).lastBufPtr = &((int *)recv_buf)[count-1];
 	
 	switch (datatype){
 		case MPI_CHAR:
 		case MPI_UNSIGNED_CHAR:
 		case MPI_BYTE:
-			shmem_char_get(buf, recv_buf, count, source);
+			shmem_getmem(buf, recv_buf, count, source);
 			break;
 		case MPI_SHORT:
 		case MPI_UNSIGNED_SHORT:
@@ -800,22 +807,35 @@ int MPI_Irecv (void *buf, int count, MPI_Datatype datatype, int source, int tag,
 			shmem_getmem(buf, recv_buf, count, source);
 			break;
 	}
+	// Set-up MPI_Request for MPI_Irecv
+	shmem_int_get( (*request).expected, (*request).lastBufPtr, 1, source);
+	(*request).requestType = RECEIVE_TYPE;
+	(*request).rank		= source;
+	(*request).dataType	= datatype;
+	
+	//printf("Irecv: PE: %d, From PE: %d, got: ? \n", my_pe, (*request).rank );
 	
 	return ret;
 }
 
 /**
  * MPI_Isend
- * Performs a nonblocking send. which really doesnt exist in openShmem...
- * So I am ignoring the requestComm and have no idea how to do MPI_Test.
- * However, we will not do the fence at the end (to speed things up...)
+ * Performs a nonblocking send. 
  *
- * @param 
- * @param 
- * @param 
- * @return 
+ * @param buf		initial address of receive buffer (choice) 
+ * @param count		number of elements in receive buffer (integer) 
+ * @param datatype	datatype of each receive buffer element (handle) 
+ * @param dest		rank of destination (integer) 
+ * @param tag		message tag (integer) 
+ * @param comm		communicator (handle) 
+ * 
+ * Output Parameter
+ * 
+ * @param request	communication request (handle) 
+ *  
+ * @return status
  */
-int MPI_Isend(void *buf, int count, MPI_Datatype datatype, int dest, int tag, MPI_Comm comm, MPI_Request *requestComm){
+int MPI_Isend(void *buf, int count, MPI_Datatype datatype, int dest, int tag, MPI_Comm comm, MPI_Request *request){
 	
 	int  ret;
 	int my_pe = shmem_my_pe();
@@ -839,13 +859,15 @@ int MPI_Isend(void *buf, int count, MPI_Datatype datatype, int dest, int tag, MP
 		mlog(MPI_DBG,"MPI_Isend::Buffer is NOT in a symmetric segment, pe: %d\n", my_pe);
 	}
 
-	// ToDo: add in info to requestCom to track the put in MPI_Test
+	// In Request, put the expected last value:
+	(*request).expected   = shmalloc( sizeof(int) );                             
+	((int *)((*request).expected))[0] = ((int *)buf)[count-1];         
 
 	switch (datatype){
 		case MPI_CHAR:
 		case MPI_UNSIGNED_CHAR:
 		case MPI_BYTE:
-			shmem_char_put(recv_buf, buf, count, dest);
+			shmem_putmem(recv_buf, buf, count, dest);
 			break;
 		case MPI_SHORT:
 		case MPI_UNSIGNED_SHORT:
@@ -876,6 +898,15 @@ int MPI_Isend(void *buf, int count, MPI_Datatype datatype, int dest, int tag, MP
 			break;
 	}
 	
+	// Get the address (this is of the current PE)
+	(*request).lastBufPtr   = &((int *)recv_buf)[count-1];
+
+	// Set-up MPI_Request for MPI_Isend                                                                        
+	(*request).requestType = SEND_TYPE;
+	(*request).rank		   = dest;
+	(*request).dataType	   = datatype;
+	
+	//printf("MPI_Isend: PE: %d to PE: %d, sent: %d\n", my_pe, (*request).rank, ( (int *)(buf))[0] );
 	return ret;
 }
 
@@ -928,21 +959,46 @@ int MPI_Finalize(void){
  * MPI_Test
  * Tests for the completion of a request
  *
- * @param 
- * @param 
- * @param 
- * @return 
+ * @param request	MPI request (handle)
+ * @param flag		true if operation completed (logical)
+ * @param status	status object
+ *
+ * @return MPI_SUCCESS
  */
 int MPI_Test (MPI_Request *request, int *flag, MPI_Status *status){
+	//MPI_Test (request, flag, status);                                                              
+	void *buf;
+	int value = 0;
 	
-	int ret = MPI_SUCCESS;//MPI_Test (request, flag, status);
-
-	// ToDo: Change this to polling the buffer to see if send/recv complete.
+	// Asssume transfer not there:                                                                   
+	*flag = 0;
 	
-	shmem_barrier_all ();
-	// Fence and quiet sometimes do the same thing...
-	shmem_fence();   // Ensures ordering of outgoing write (put) operations to a single PE
-	shmem_quiet();   // Waits for completion of all outstanding remote writes initiated from the calling PE
+	switch ( (*request).dataType){
+		case MPI_CHAR:
+		case MPI_UNSIGNED_CHAR:
+		case MPI_BYTE:
+		case MPI_SHORT:
+		case MPI_UNSIGNED_SHORT:
+		case MPI_LONG:
+		case MPI_UNSIGNED_LONG:
+		case MPI_FLOAT:
+		case MPI_DOUBLE:
+		case MPI_LONG_DOUBLE:
+		case MPI_LONG_LONG:
+		case MPI_INT:
+		case MPI_UNSIGNED:
+		default:
+			
+			  value = shmem_int_cswap( (*request).lastBufPtr, ((int *)((*request).expected))[0], ((int *)((*request).expected))[0], (*request).rank);
+			  
+			  if (value == ((int *)((*request).expected))[0] ){
+			    *flag = 1;
+			  }
+			  //printf("MPI_Test, flag: %d For Pe: %d, value = %d", *flag, (*request).rank, value);
+			  //printf(" lastBufPtr = %d, expected: %d\n",( (int *)((*request).lastBufPtr))[0], ( (int *)((*request).expected))[0] );
+			break;
+	}
 	
-	return ret;
+	
+	return MPI_SUCCESS;
 }
