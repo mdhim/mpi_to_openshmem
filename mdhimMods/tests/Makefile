@@ -16,8 +16,8 @@ TESTER = testeråçå
 CFLAGS	= -lmdhim -L/usr/lib64 -lmpi_to_openshmem ${OPENSHMEM_ROOT}/lib/libopenshmem.so -lgasnet-ibv-par -libverbs -lm -lpthread -lstdc++ ${LEVEL_DB_ROOT}/libleveldb.a
 #CFLAGS  = -lmpich -lmdhim -lm -lpthread -lstdc++ ${LEVEL_DB_ROOT}/libleveldb.a
 
-#all:	startPesExample broadcast1 testStart testSendRcv sendRcvChar isendiRecv allgather gather
-all:	gatherv
+#all:	startPesExample broadcast1 testStart testSendRcv sendRcvChar isendiRecv gather allgather gatherv mpi_test_int mpi_test_char
+all:	mpi_test
 
 startPesExample: $(SINGLE)/startPesExample.c
 	$(CC) $< $(CINC) $(CLIBS) $(CFLAGS) -o $(SINGLE)/$@
@@ -34,18 +34,26 @@ testSendRcv: $(SINGLE)/testSendRcv.c
 sendRcvChar: $(SINGLE)/sendRcvChar.c
 	$(CC) $< $(CINC) $(CLIBS) $(CFLAGS) -o $(SINGLE)/$@
 
-isendiRecv: $(SINGLE)/isendiRecv
+isendiRecv: $(SINGLE)/isendiRecv.c
 	$(CC) $< $(CINC) $(CLIBS) $(CFLAGS) -o $(SINGLE)/$@
 
 allgather: $(SINGLE)/allgather.c
 	$(CC) $< $(CINC) $(CLIBS) $(CFLAGS) -o $(SINGLE)/$@
 
-gather: $(SINGLE)/gather
+gather: $(SINGLE)/gather.c
 	$(CC) $< $(CINC) $(CLIBS) $(CFLAGS) -o $(SINGLE)/$@
 
-gatherv: $(SINGLE)/gatherv
+gatherv: $(SINGLE)/gatherv.c
 	$(CC) $< $(CINC) $(CLIBS) $(CFLAGS) -o $(SINGLE)/$@
 
+mpi_test_int: $(SINGLE)/mpi_test_int.c
+	$(CC) $< $(CINC) $(CLIBS) $(CFLAGS) -o $(SINGLE)/$@
+
+mpi_test_char: $(SINGLE)/mpi_test_char.c
+	$(CC) $< $(CINC) $(CLIBS) $(CFLAGS) -o $(SINGLE)/$@
+
+mpi_test: $(SINGLE)/mpi_test.c
+	$(CC) $< $(CINC) $(CLIBS) $(CFLAGS) -o $(SINGLE)/$@
 
 clean:
 	rm -rf $(SINGLE)/startPesExample $(SINGLE)/broadcast1 $(SINGLE)/testStart $(SINGLE)/testSendRcv\
