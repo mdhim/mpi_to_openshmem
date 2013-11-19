@@ -16,8 +16,8 @@ TESTER = testeråçå
 CFLAGS	= -lmdhim -L/usr/lib64 -lmpi_to_openshmem ${OPENSHMEM_ROOT}/lib/libopenshmem.so -lgasnet-ibv-par -libverbs -lm -lpthread -lstdc++ ${LEVEL_DB_ROOT}/libleveldb.a
 #CFLAGS  = -lmpich -lmdhim -lm -lpthread -lstdc++ ${LEVEL_DB_ROOT}/libleveldb.a
 
-#all:	startPesExample broadcast1 testStart testSendRcv sendRcvChar isendiRecv gather allgather gatherv mpi_test_int mpi_test_char
-all:	mpi_test
+#all:	startPesExample broadcast1 testStart testSendRcv sendRcvChar isendiRecv gather allgather gatherv mpi_test mpi_test_int mpi_test_char
+all:	mpi_packs
 
 startPesExample: $(SINGLE)/startPesExample.c
 	$(CC) $< $(CINC) $(CLIBS) $(CFLAGS) -o $(SINGLE)/$@
@@ -53,6 +53,9 @@ mpi_test_char: $(SINGLE)/mpi_test_char.c
 	$(CC) $< $(CINC) $(CLIBS) $(CFLAGS) -o $(SINGLE)/$@
 
 mpi_test: $(SINGLE)/mpi_test.c
+	$(CC) $< $(CINC) $(CLIBS) $(CFLAGS) -o $(SINGLE)/$@
+
+mpi_packs: $(SINGLE)/mpi_packs.c
 	$(CC) $< $(CINC) $(CLIBS) $(CFLAGS) -o $(SINGLE)/$@
 
 clean:
