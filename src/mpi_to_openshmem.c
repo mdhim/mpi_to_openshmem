@@ -107,19 +107,22 @@ int MPI_Init_thread( int *argc, char ***argv, int required, int *provided ){
 	
 }
 
-/* The rest are in stubs - to be filled out one by one */
 /**
  * MPI_Abort
  * Terminates MPI execution environment.
  *
- * @param 
- * @param 
- * @param 
- * @return 
+ * @param comm		communicator (handle)
+ * @param errorcode	error code to return to invoking environment 
+ * 
+ * @return status
  */
 int MPI_Abort (MPI_Comm comm, int errorcode){
+	int ret = MPI_SUCCESS;
 	
-	int ret = 1; //MPI_Abort (comm, errorcode);
+	// Clear all of the outstanding puts, and that's pretty much all  we can do..
+	shmem_barrier_all();
+	errorcode = MPI_SUCCESS;
+	
 	return ret;
 }
 
@@ -127,10 +130,9 @@ int MPI_Abort (MPI_Comm comm, int errorcode){
  * MPI_Barrier
  * Blocks until all processors in the communicator ave reached this routine.
  *
- * @param 
- * @param 
- * @param 
- * @return 
+ * @param comm	communicator (handle)
+ *
+ * @return status
  */
 int MPI_Barrier (MPI_Comm comm){
 
@@ -159,19 +161,19 @@ int MPI_Barrier (MPI_Comm comm){
  */
 int MPI_Bcast ( void *source, int count, MPI_Datatype dataType, int root, MPI_Comm comm){
 	
-	int i, npes, my_pe;
+	int  i;
+	int  npes, my_pe;
 	void *target;
 
 	npes = _num_pes();
 	my_pe = shmem_my_pe();
 	
-	
 	target = (void *)mpiComm[comm].bufferPtr;
 	if (target != NULL){
-        printf("mpiComm[comm].bufferPtr: %x\n", target);
+        mlog(MPI_DBG,"MPI_Bcast:: mpiComm[comm].bufferPtr: %x\n", target);
 	}else{
-		printf("target is NULL\n\n");
-		return 1;
+		mlog(MPI_DBG,"MPI_Bcast:: target is NULL\n\n");
+		return MPI_ERR_BUFFER;
 	}
 	
 #ifdef DEBUG
@@ -320,7 +322,7 @@ int MPI_Allgather (void *sendbuf, int sendcount, MPI_Datatype sendtype, void *re
 	}
 	
 	if ( !shmem_addr_accessible( recvbuf, my_pe) || !shmem_addr_accessible( sendbuf, my_pe) ) {
-		printf("MPI_Allgather::Buffer is not in a symmetric segment, pe: %d\n", my_pe);
+		//printf("MPI_Allgather::Buffer is not in a symmetric segment, pe: %d\n", my_pe);
 		mlog(MPI_ERR, "Error: Buffer is not in a symmetric segment, %d\n", my_pe);
 		return MPI_ERR_BUFFER;
 	}
@@ -347,7 +349,7 @@ int MPI_Allgather (void *sendbuf, int sendcount, MPI_Datatype sendtype, void *re
 		else isCollect32 = -1;
 	}	
 	if ( isCollect32 == -1 ){
-		printf("MPI_Allgather:: wrong datatype, can only handle integers.\n");
+		//printf("MPI_Allgather:: wrong datatype, can only handle integers.\n");
 		mlog(MPI_ERR, "Invalid datatype in sendtype, must be MPI_INT\n");
 		return MPI_ERR_TYPE;
 	}			
@@ -403,7 +405,7 @@ int MPI_Gather (void *sendbuf, int sendcount, MPI_Datatype sendtype, void *recvb
 	}
 	
 	if ( !shmem_addr_accessible( recvbuf, my_pe) || !shmem_addr_accessible( sendbuf, my_pe) ) {
-		printf("MPI_Gather::Buffer is not in a symmetric segment, pe: %d\n", my_pe);
+		//printf("MPI_Gather::Buffer is not in a symmetric segment, pe: %d\n", my_pe);
 		mlog(MPI_ERR, "Error: Buffer is not in a symmetric segment, %d\n", my_pe);
 		return MPI_ERR_BUFFER;
 	}
@@ -490,7 +492,7 @@ int MPI_Gatherv (void *sendbuf, int sendcount, MPI_Datatype sendtype, void *recv
 	}
 	
 	if ( !shmem_addr_accessible( recvbuf, my_pe) || !shmem_addr_accessible( sendbuf, my_pe) ) {
-		printf("MPI_Gather::Buffer is not in a symmetric segment, pe: %d\n", my_pe);
+		//printf("MPI_Gather::Buffer is not in a symmetric segment, pe: %d\n", my_pe);
 		mlog(MPI_ERR, "Error: Buffer is not in a symmetric segment, pe: %d\n", my_pe);
 		return MPI_ERR_BUFFER;
 	}
@@ -678,7 +680,7 @@ int MPI_Send (void *buf, int count, MPI_Datatype datatype, int dest, int tag, MP
 	else {
 		ret = MPI_SUCCESS;
 	}
-	printf("MPI_Send: PE: %d, recv_buffer Addr = %x\n", my_pe, recv_buf);
+	//mlog(MPI_DBG,"MPI_Send: PE: %d, recv_buffer Addr = %x\n", my_pe, recv_buf);
 	
 	if (shmem_addr_accessible( recv_buf, my_pe) ) {
 		mlog(MPI_DBG, "MPI_SEND::Buffer is in a symmetric segment, pe: %d\n", my_pe);
@@ -914,43 +916,170 @@ int MPI_Isend(void *buf, int count, MPI_Datatype datatype, int dest, int tag, MP
  * MPI_Unpack
  * Unpack a buffer according to a datatype into contiguous memory
  *
- * @param 
- * @param 
- * @param 
+ * @param inbuf		input buffer start (choice)
+ * @param insize	size of input buffer, in bytes (integer)
+ * @param position	current position in bytes (integer)
+ * @param outbuf	output buffer start (choice)
+ * @param outcount	number of items to be unpacked (integer)
+ * @param datatype	datatype of each output data item (handle)
+ * @param comm		communicator for packed message (handle)
+ *
  * @return 
  */
 int MPI_Unpack (void *inbuf, int insize, int *position, void *outbuf, int outcount, MPI_Datatype datatype, MPI_Comm comm){
 	
-	int ret = 1;//MPI_Unpack (inbuf, insize, position, outbuf, outcount, datatype, comm);
-	return ret;
-}
-
-/**
- * MPI_Unpack
- * Unpack a buffer according to a datatype into contiguous memory
- *
- * @param 
- * @param 
- * @param 
- * @return 
- */
-int MPI_Pack(void *inbuf, int incount, MPI_Datatype datatype, void *outbuf, int outsize, int *position,  MPI_Comm comm){
-	int ret = 1;//MPI_Pack (inbuf, incount, datatype, outbuf, outsize, position, comm);
-	return ret;
+	int numBytes;
+	int totalNumBytes = 0;
+	int my_pe = shmem_my_pe();
+	int rank;
 	
+	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+	
+	// Figure out how many bytes the datatype has                                                                                
+	switch (datatype){
+		case MPI_CHAR:
+		case MPI_UNSIGNED_CHAR:
+		case MPI_BYTE:
+			numBytes = outcount * sizeof(char);
+			break;
+		case MPI_SHORT:
+		case MPI_UNSIGNED_SHORT:
+			numBytes = outcount * sizeof(short);
+			break;
+		case MPI_INT:
+		case MPI_UNSIGNED:
+			numBytes = outcount * sizeof(int);
+			break;
+		case MPI_LONG:
+		case MPI_UNSIGNED_LONG:
+			numBytes = outcount * sizeof(unsigned long);
+			break;
+		case MPI_FLOAT:
+			numBytes = outcount * sizeof(float);
+			break;
+		case MPI_DOUBLE:
+			numBytes = outcount * sizeof(double);
+			break;
+		case MPI_LONG_DOUBLE:
+			numBytes = outcount * sizeof(long double);
+			break;
+		case MPI_LONG_LONG:
+			numBytes = outcount * sizeof(long long);
+			break;
+		default:
+			numBytes = outcount * sizeof(char);
+			break;
+	}
+	//mlog(MPI_DBG,"MPI_Unpack, PE: %d, Number of bytes: %d, position: %d \n", my_pe, numBytes, *position);
+	//mlog(MPI_DBG,"MPI_Unpack, PE: %d, inbuf: %c, outbuf: %c \n", rank, ((char *)inbuf)[*position], ((char *)outbuf)[0]);
+	
+	// Check to see if there is enough space for the send:
+	totalNumBytes = numBytes + *position;
+	if (totalNumBytes > insize) {
+		mlog(MPI_DBG,"MPI_Unpack:: PE: %d total bytes is larger (%d) than buffer size (%d).\n", my_pe, totalNumBytes, insize);
+		return MPI_ERR_NO_SPACE;
+	}
+	
+	// Send inbuf to outbuf with an offset of position: 
+	//shmem_getmem(buf, recv_buf, count, source);
+	shmem_getmem( outbuf, &(((char *)inbuf)[*position]), numBytes, rank);
+	
+	// Don't forget to increment the position
+	*position = *position + numBytes;
+	
+	return MPI_SUCCESS;	
 }
 
 /**
  * MPI_Pack
  * Pack a buffer according to a datatype into contiguous memory
  *
- * @param 
- * @param 
- * @param 
- * @return 
+ * @param inbuf		input buffer start (choice)
+ * @param incount	number of input data items (integer)
+ * @param datatype	datatype of each input data item (handle)
+ * @param outbuf	output buffer start (choice)
+ * @param outsize	output buffer size, in bytes (integer)
+ * @param position	current position in buffer, in bytes (integer)
+ * @param comm		communicator for packed message (handle)
+ *
+ * @return status
+ */
+int MPI_Pack(void *inbuf, int incount, MPI_Datatype datatype, void *outbuf, int outsize, int *position,  MPI_Comm comm){
+	
+	int numBytes;
+	int totalNumBytes = 0;
+	int my_pe = shmem_my_pe();
+	int rank;
+	
+	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+	
+	// Figure out how many bytes the datatype has                                                                               
+	switch (datatype){
+		case MPI_CHAR:
+		case MPI_UNSIGNED_CHAR:
+		case MPI_BYTE:
+			numBytes = incount * sizeof(char);
+			break;
+		case MPI_SHORT:
+		case MPI_UNSIGNED_SHORT:
+			numBytes = incount * sizeof(short);
+			break;
+		case MPI_INT:
+		case MPI_UNSIGNED:
+			numBytes = incount * sizeof(int);
+			break;
+		case MPI_LONG:
+		case MPI_UNSIGNED_LONG:
+			numBytes = incount * sizeof(unsigned long);
+			break;
+		case MPI_FLOAT:
+			numBytes = incount * sizeof(float);
+			break;
+		case MPI_DOUBLE:
+			numBytes = incount * sizeof(double);
+			break;
+		case MPI_LONG_DOUBLE:
+			numBytes = incount * sizeof(long double);
+			break;
+		case MPI_LONG_LONG:
+			numBytes = incount * sizeof(long long);
+			break;
+		default:
+			numBytes = incount * sizeof(char);
+			break;
+	}
+	
+	//mlog(MPI_DBG,"MPI_Pack, PE: %d, Number of bytes: %d, position: %d \n", my_pe, numBytes, *position);
+	//mlog(MPI_DBG,"MPI_Pack, PE: %d, inbuf: %c, outbuf: %c \n", rank, ((char *)inbuf)[*position], ((char *)outbuf)[0]);
+	
+	// Check to see if there is enough space for the send:
+	totalNumBytes = numBytes + *position;
+	if (totalNumBytes > outsize) {
+		mlog(MPI_ERR,"MPI_Pack::, pe: %d total bytes is larger (%d) than buffer size (%d).\n", my_pe, totalNumBytes, outsize);
+		return MPI_ERR_NO_SPACE;
+	}
+	
+	// Send inbuf to outbuf with an offset of position:
+	shmem_putmem( &(((char *)outbuf)[*position]), inbuf, numBytes, rank);
+	
+	// and to be on the safe side:
+	shmem_fence();
+	
+	// Don't forget to increment the position
+	*position = *position + numBytes;
+	
+	return MPI_SUCCESS;	
+}
+
+/**
+ * MPI_Finalize
+ * Terminates MPI execution environment 
+ *
+ * @return status
  */
 int MPI_Finalize(void){
-	//shfree (mpiComm);
+	// Clear all of the outstanding puts, and that's pretty much all  we can do..
+	shmem_barrier_all();
 	int ret = MPI_SUCCESS; //MPI_Finalize ();
 	return ret;
 }
@@ -966,39 +1095,18 @@ int MPI_Finalize(void){
  * @return MPI_SUCCESS
  */
 int MPI_Test (MPI_Request *request, int *flag, MPI_Status *status){
-	//MPI_Test (request, flag, status);                                                              
-	void *buf;
 	int value = 0;
 	
 	// Asssume transfer not there:                                                                   
 	*flag = 0;
 	
-	switch ( (*request).dataType){
-		case MPI_CHAR:
-		case MPI_UNSIGNED_CHAR:
-		case MPI_BYTE:
-		case MPI_SHORT:
-		case MPI_UNSIGNED_SHORT:
-		case MPI_LONG:
-		case MPI_UNSIGNED_LONG:
-		case MPI_FLOAT:
-		case MPI_DOUBLE:
-		case MPI_LONG_DOUBLE:
-		case MPI_LONG_LONG:
-		case MPI_INT:
-		case MPI_UNSIGNED:
-		default:
-			
-			  value = shmem_int_cswap( (*request).lastBufPtr, ((int *)((*request).expected))[0], ((int *)((*request).expected))[0], (*request).rank);
-			  
-			  if (value == ((int *)((*request).expected))[0] ){
-			    *flag = 1;
-			  }
-			  //printf("MPI_Test, flag: %d For Pe: %d, value = %d", *flag, (*request).rank, value);
-			  //printf(" lastBufPtr = %d, expected: %d\n",( (int *)((*request).lastBufPtr))[0], ( (int *)((*request).expected))[0] );
-			break;
-	}
+	value = shmem_int_cswap( (*request).lastBufPtr, ((int *)((*request).expected))[0], ((int *)((*request).expected))[0], (*request).rank);
 	
+	if (value == ((int *)((*request).expected))[0] ){
+		*flag = 1;
+	}
+	//mlog(MPI_DBG,"MPI_Test, flag: %d For Pe: %d, value = %d", *flag, (*request).rank, value);
+	//mlog(MPI_DBG," lastBufPtr = %d, expected: %d\n",( (int *)((*request).lastBufPtr))[0], ( (int *)((*request).expected))[0] );
 	
 	return MPI_SUCCESS;
 }
