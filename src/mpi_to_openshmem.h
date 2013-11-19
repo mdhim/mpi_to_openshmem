@@ -32,7 +32,7 @@ long pSync[_SHMEM_BCAST_SYNC_SIZE];
 
 
 /**** from mpi.h.in									****/
-#define MPI_COMM_WORLD		0
+#define MPI_COMM_WORLD	     0
 
 #define MPI_SUCCESS          0      /* Successful return code */
 #define MPI_ERR_NO_MEM       1      /* Alloc_mem could not allocate memory */
@@ -40,6 +40,7 @@ long pSync[_SHMEM_BCAST_SYNC_SIZE];
 #define MPI_ERR_COUNT        3		// Invalid count argument
 #define MPI_ERR_TYPE         4		// Invalid datatype argument
 #define MPI_ERR_SIZE         5      // Invalid size.
+#define MPI_ERR_NO_SPACE     6      // Memory exhausted.
 /*
  MPI_SUCCESS              0      Successful return code.
  MPI_ERR_BUFFER           1      Invalid buffer pointer.
@@ -71,8 +72,7 @@ long pSync[_SHMEM_BCAST_SYNC_SIZE];
  MPI_ERR_CONVERSION      24      An error occurred in a user-supplied
  data-conversion function.
  MPI_ERR_DISP            25      Invalid displacement.
- MPI_ERR_DUP_DATAREP     26      Conversion functions could not
- be registered because a data
+ MPI_ERR_DUP_DATAREP     26      Conversion functions could not be registered because a data
  representation identifier that was
  already defined was passed to
  MPI_REGISTER_DATAREP.
@@ -89,9 +89,7 @@ long pSync[_SHMEM_BCAST_SYNC_SIZE];
  MPI_ERR_KEYVAL          35      Illegal key value.
  MPI_ERR_LOCKTYPE        36      Invalid locktype.
  MPI_ERR_NAME            37      Name not found.
- MPI_ERR_NO_MEM          38      Memory exhausted.
  MPI_ERR_NOT_SAME        39
- MPI_ERR_NO_SPACE        40      Not enough space.
  MPI_ERR_NO_SUCH_FILE    41      File (or directory) does not exist.
  MPI_ERR_PORT            42      Invalid port.
  MPI_ERR_QUOTA           43      Quota exceeded.
@@ -129,6 +127,7 @@ typedef int MPI_Datatype;
 /* MPI_LONG_LONG is in the complete ref 2nd edition, though not in the 
  standard.  Rather, MPI_LONG_LONG_INT is on page 40 in the HPCA version */
 #define MPI_LONG_LONG      ((MPI_Datatype)13)
+#define MPI_PACKED		   ((MPI_Datatype)14)
 
 /* For supported thread levels */
 #define MPI_THREAD_SINGLE		0
