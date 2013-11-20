@@ -32,7 +32,7 @@ long pSync[_SHMEM_BCAST_SYNC_SIZE];
 
 
 /**** from mpi.h.in									****/
-#define MPI_COMM_WORLD	     0
+#define MPI_COMM_WORLD		0
 
 #define MPI_SUCCESS          0      /* Successful return code */
 #define MPI_ERR_NO_MEM       1      /* Alloc_mem could not allocate memory */
@@ -41,6 +41,7 @@ long pSync[_SHMEM_BCAST_SYNC_SIZE];
 #define MPI_ERR_TYPE         4		// Invalid datatype argument
 #define MPI_ERR_SIZE         5      // Invalid size.
 #define MPI_ERR_NO_SPACE     6      // Memory exhausted.
+#define MPI_ERR_COMM         7      // Invalid communicator.
 /*
  MPI_SUCCESS              0      Successful return code.
  MPI_ERR_BUFFER           1      Invalid buffer pointer.
@@ -171,7 +172,7 @@ typedef struct MPID_Group {
 typedef struct MPID_Comm {
     int				rank;			/* Value of MPI_Comm_rank */
     int				size;			/* Value of MPI_Comm_size for local group */
-    MPID_Group		*local_group;   /* Groups in communicator. */
+    MPID_Group		*localGroupPtr;    /* Groups in communicator. */
 	void			*bufferPtr;
 } MPID_Comm;
 
@@ -184,11 +185,11 @@ typedef struct MPID_Request{
 } MPID_Request;
 
 MPID_Comm  mpiComm[MAX_NUM_COMM];
-typedef MPID_Group MPI_Group;
-typedef MPID_Request       MPI_Request;
-typedef int		   MPI_Comm;
+typedef MPID_Group		MPI_Group;
+typedef MPID_Request    MPI_Request;
+typedef int				MPI_Comm;
 
-MPI_Comm comm;
+//MPI_Comm comm;
 
 /* Define all of the subroutines */
 //struct mpi_to_openshmem_t * ( int mpiType, int required, int *provided, int debugLevel ); 
