@@ -30,6 +30,7 @@ int MPI_Init( int *argc, char ***argv ){
 	int        ret = MPI_SUCCESS;
 	void       *sharedBuffer;
 	MPID_Group *localGroupPtr;
+	int		   *pesGroupPtr;
 	
 	//Open mlog - stolen from plfs
 	ret = mlog_open((char *)"mpi_to_openshmem", 0, MLOG_CRIT, MLOG_CRIT, NULL, 0, MLOG_LOGPID, 0);
@@ -44,26 +45,7 @@ int MPI_Init( int *argc, char ***argv ){
 		mlog(MPI_ERR, "MPI_Init:: PE: %d, could not shmalloc space for symmetric memory.\n", my_pe);
 		return MPI_ERR_NO_MEM;
 	}
-	
-	// Make space for the initial group & initialize:
-	localGroupPtr = (MPID_Group *)shmalloc(sizeof(MPID_Group));
-	if (localGroupPtr == NULL ){
-		mlog(MPI_ERR, "MPI_Init:: PE: %d, could not shmalloc space for MPID_Group.\n", my_pe);
-		return MPI_ERR_NO_MEM;
-	}
-	((MPID_Group)*localGroupPtr).rank    = my_pe;
-	((MPID_Group)*localGroupPtr).size    = npes;
-	((MPID_Group)*localGroupPtr).pe_rank = my_pe;
-	
- 	mpiComm[MPI_COMM_WORLD].localGroupPtr = localGroupPtr;
-	
-	//printf("MPI_Init_Thread: after start_pes, set up rank and local size\n");
-	
-	// Set up the rank and local_size (npes)
-	mpiComm[MPI_COMM_WORLD].rank      = my_pe;
-	mpiComm[MPI_COMM_WORLD].size      = npes;
-	mpiComm[MPI_COMM_WORLD].bufferPtr = sharedBuffer;
-	
+
 	if (shmem_addr_accessible( sharedBuffer, my_pe) ) {
 		mlog(MPI_DBG, "MPI_Init::Buffer is in a symmetric segment for target pe: %d\n", my_pe);
 	}else{
@@ -71,6 +53,38 @@ int MPI_Init( int *argc, char ***argv ){
 		ret = MPI_ERR_BUFFER;
 	}
 	
+	// Make space for the initial group & initialize:
+	localGroupPtr = (MPID_Group *)shmalloc(sizeof(MPID_Group));
+	
+	if (localGroupPtr == NULL ){
+		mlog(MPI_ERR, "MPI_Init:: PE: %d, could not shmalloc space for MPID_Group.\n", my_pe);
+		return MPI_ERR_NO_MEM;
+	}
+	pesGroupPtr = (int *)shmalloc(sizeof(int) * npes);
+	if (pesGroupPtr == NULL ){
+		mlog(MPI_ERR, "MPI_Init:: PE: %d, could not shmalloc space for MPID_Group.pesInGroup.\n", my_pe);
+		return MPI_ERR_NO_MEM;
+	}
+	
+	//printf("MPI_Init_Thread: after start_pes, set up rank and local size\n");
+	
+	// Set up the rank and local_size (npes)
+	mpiComm[MPI_COMM_WORLD].rank          = my_pe;
+	mpiComm[MPI_COMM_WORLD].size          = npes;
+	mpiComm[MPI_COMM_WORLD].bufferPtr     = sharedBuffer;
+ 	mpiComm[MPI_COMM_WORLD].localGroupPtr = localGroupPtr;
+	
+	// Set values in the Comm's Group
+	((MPID_Group)*localGroupPtr).rank    = my_pe;
+	((MPID_Group)*localGroupPtr).size    = npes;
+	((MPID_Group)*localGroupPtr).pe_rank = my_pe;
+	((MPID_Group)*localGroupPtr).pesInGroup = pesGroupPtr;
+
+	// Initially all processes belong in the group.
+	for (i=0; i<npes; i++){
+		((MPID_Group)*localGroupPtr).pesInGroup[i] = i;
+	}
+		
 #ifdef DEBUG
 	int me = _my_pe();
 	//printf("MPI_Init: Me: %d, [%d].rank: %d, [%d].local_size: %d\n", me, i, mpiComm[i].rank, i, mpiComm[i].local_size);
@@ -99,6 +113,7 @@ int MPI_Init_thread( int *argc, char ***argv, int required, int *provided ){
 	int        ret = MPI_SUCCESS;
 	void       *sharedBuffer;
 	MPID_Group *localGroupPtr;
+	int		   *pesGroupPtr;
 	
 	//Open mlog - stolen from plfs
 	ret = mlog_open((char *)"mpi_to_openshmem", 0, MLOG_CRIT, MLOG_CRIT, NULL, 0, MLOG_LOGPID, 0);
@@ -114,31 +129,43 @@ int MPI_Init_thread( int *argc, char ***argv, int required, int *provided ){
 		return MPI_ERR_NO_MEM;
 	}
 	
-	// Make space for the initial group & initialize:
-	localGroupPtr = (MPID_Group *)shmalloc(sizeof(MPID_Group));
-	if (localGroupPtr == NULL ){
-		mlog(MPI_ERR, "MPI_Init_thread:: PE: %d, could not shmalloc space for MPID_Group.\n", my_pe);
-		return MPI_ERR_NO_MEM;
-	}
-	((MPID_Group)*localGroupPtr).rank    = my_pe;
-	((MPID_Group)*localGroupPtr).size    = npes;
-	((MPID_Group)*localGroupPtr).pe_rank = my_pe;
-	
- 	mpiComm[MPI_COMM_WORLD].localGroupPtr = localGroupPtr;
-	
-	//printf("MPI_Init_Thread: after start_pes, set up rank and local size\n");
-	
-	// Set up the rank and local_size (npes)
-	mpiComm[MPI_COMM_WORLD].rank      = my_pe;
-	mpiComm[MPI_COMM_WORLD].size      = npes;
-	mpiComm[MPI_COMM_WORLD].bufferPtr = sharedBuffer;
-	
 	if (shmem_addr_accessible( sharedBuffer, my_pe) ) {
 		mlog(MPI_DBG, "MPI_Init_thread::Buffer is in a symmetric segment for target pe: %d\n", my_pe);
 	}else{
 		mlog(MPI_ERR, "MPI_Init_thread::Buffer is NOT in a symmetric segment for target pe: %d\n", my_pe);
 		ret = MPI_ERR_BUFFER;
 	}
+
+	// Make space for the initial group structure:
+	localGroupPtr = (MPID_Group *)shmalloc(sizeof(MPID_Group));
+	if (localGroupPtr == NULL ){
+		mlog(MPI_ERR, "MPI_Init_thread:: PE: %d, could not shmalloc space for MPID_Group.\n", my_pe);
+		return MPI_ERR_NO_MEM;
+	}
+	pesGroupPtr = (int *)shmalloc(sizeof(int) * npes);
+	if (pesGroupPtr == NULL ){
+		mlog(MPI_ERR, "MPI_Init_thread:: PE: %d, could not shmalloc space for MPID_Group.pesInGroup.\n", my_pe);
+		return MPI_ERR_NO_MEM;
+	}	
+	
+	//printf("MPI_Init_Thread: after start_pes, set up rank and local size\n");
+	
+	// Set up the rank and local_size (npes)
+	mpiComm[MPI_COMM_WORLD].rank          = my_pe;
+	mpiComm[MPI_COMM_WORLD].size          = npes;
+	mpiComm[MPI_COMM_WORLD].bufferPtr     = sharedBuffer;
+ 	mpiComm[MPI_COMM_WORLD].localGroupPtr = localGroupPtr;
+	
+	// Set values in the Comm's Group
+	((MPID_Group)*localGroupPtr).rank    = my_pe;
+	((MPID_Group)*localGroupPtr).size    = npes;
+	((MPID_Group)*localGroupPtr).pesInGroup = pesGroupPtr;
+	
+	// Initially all processes belong in the group.
+	for (i=0; i<npes; i++){
+		((MPID_Group)*localGroupPtr).pesInGroup[i] = i;
+	}
+	
 		
 #ifdef DEBUG
 		int me = _my_pe();
@@ -270,14 +297,73 @@ int MPI_Bcast ( void *source, int count, MPI_Datatype dataType, int root, MPI_Co
  * MPI_Comm_create
  * Creates a new communicator
  *
- * @param 
- * @param 
- * @param 
+ * @param comm	   communicator (handle) 
+ * @param group	   group, which is a subset of the group of comm (handle)
+ * @param comm_out new communicator (handle) 
  * @return 
  */
 int MPI_Comm_create (MPI_Comm comm, MPI_Group group, MPI_Comm *newcomm){
-	int ret = 1;//MPI_Comm_create ( comm,  group,  newcomm);
-	return ret;
+
+	int        i;
+	void       *sharedBuffer;
+	MPID_Group *localGroupPtr;
+	int		   *pesGroupPtr;
+
+	int npes =  _num_pes ();
+	int my_pe = shmem_my_pe();
+
+	// This will not really work.  It needs to be pointer to a new MpiComm sized space...
+	*newcomm = comm+1;
+	
+	sharedBuffer = (void *)shmalloc(sizeof(char) * MAX_BUFFER_SIZE);
+	if (sharedBuffer == NULL ){
+		mlog(MPI_ERR, "MPI_Init_thread:: PE: %d, could not shmalloc space for symmetric memory.\n", my_pe);
+		return MPI_ERR_NO_MEM;
+	}
+	
+	if (shmem_addr_accessible( sharedBuffer, my_pe) ) {
+		mlog(MPI_DBG, "MPI_Comm_create::Buffer is in a symmetric segment for target pe: %d\n", my_pe);
+	}else{
+		mlog(MPI_ERR, "MPI_Comm_create::Buffer is NOT in a symmetric segment for target pe: %d\n", my_pe);
+		return MPI_ERR_BUFFER;
+	}
+
+	// Make space for the initial group & initialize:
+	localGroupPtr = (MPID_Group *)shmalloc(sizeof(MPID_Group));
+	if (localGroupPtr == NULL ){
+		mlog(MPI_ERR, "MPI_Init_thread:: PE: %d, could not shmalloc space for MPID_Group.\n", my_pe);
+		return MPI_ERR_NO_MEM;
+	}
+	pesGroupPtr = (int *)shmalloc(sizeof(int) * npes);
+	if (pesGroupPtr == NULL ){
+		mlog(MPI_ERR, "MPI_Init_thread:: PE: %d, could not shmalloc space for MPID_Group.pesInGroup.\n", my_pe);
+		return MPI_ERR_NO_MEM;
+	}
+	((MPID_Group)*localGroupPtr).rank    = group.rank;
+	((MPID_Group)*localGroupPtr).size    = group.size;
+	((MPID_Group)*localGroupPtr).pesInGroup = pesGroupPtr;
+
+ 	mpiComm[*newcomm].localGroupPtr = localGroupPtr;
+	
+	printf("MPI_Comm_create: after start_pes, set up rank and local size\n");
+	
+	// Set up the rank and local_size (npes)
+	mpiComm[*newcomm].rank      = my_pe;
+	mpiComm[*newcomm].size      = group.size;
+	mpiComm[*newcomm].bufferPtr = sharedBuffer;
+	
+	for (i=0; i<group.size; i++){
+		printf("MPI_Comm_create:: PE: %d, group[%d] = %d\n", my_pe, i, group.pesInGroup[i]);
+		((MPID_Group)*localGroupPtr).pesInGroup[i] = group.pesInGroup[i];
+	}
+	
+	
+#ifdef DEBUG
+	printf("MPI_Comm_Create: PE: %d, [%d].rank: %d, [%d].size: %d\n", my_pe, i, mpiComm[*newcomm].rank, i, mpiComm[*newcomm].size);
+	//mlog(MPI_DBG, "MPI_Init_Thread: Me: %d, [0].rank: %d, [0].size: %d, [0].bufferPtr: %x\n", me, mpiComm[MPI_COMM_WORLD].rank, mpiComm[MPI_COMM_WORLD].size, mpiComm[MPI_COMM_WORLD].bufferPtr);
+#endif
+
+	return MPI_SUCCESS;
 }
 
 /**
@@ -298,14 +384,23 @@ int MPI_Comm_dup (MPI_Comm comm, MPI_Comm *newcomm){
  * MPI_Comm_group
  * Accesses the group associated with given communicator
  *
- * @param 
- * @param 
- * @param 
- * @return 
+ * @param comm	communicator
+ * @param group	pointer to the group in the communicator
+ * 
+ * @return status
  */
 int MPI_Comm_group (MPI_Comm comm,	MPI_Group *group){
-
-	int ret = 1;//MPI_Comm_group(comm, group);
+	
+	int ret = MPI_SUCCESS;
+	
+	group = mpiComm[comm].localGroupPtr;
+	
+	if (group == NULL){
+		int my_pe = shmem_my_pe();
+		mlog(MPI_ERR, "MPI_Comm_group, my_pe: %-8d, mpiComm[%d].localGroupPtr is NULL.\n",  my_pe, comm);
+		return MPI_ERR_COMM;
+	}
+	
 	return ret;
 }
 
@@ -646,11 +741,33 @@ int MPI_Gatherv (void *sendbuf, int sendcount, MPI_Datatype sendtype, void *recv
  * @return status
  */
 int MPI_Group_incl (MPI_Group group, int n, int *ranks, MPI_Group *newgroup){
-	
-	int ret = MPI_SUCCESS;
+	int i, my_pe, new_rank;
+	int *pesGroupPtr;
 
+	my_pe = shmem_my_pe();
+
+	pesGroupPtr = (int *)shmalloc(sizeof(int) * n);
+	if (pesGroupPtr == NULL ){
+		mlog(MPI_ERR, "MPI_Group_incl:: PE: %d, could not shmalloc space for MPI_Group's rank array.\n", my_pe);
+		return MPI_ERR_NO_MEM;
+	}
+	for (i = 0; i < n; i++){
+		pesGroupPtr[i] = ranks[i];
+		
+		if (ranks[i] == my_pe){
+			new_rank = i;
+		}
+		mlog(MPI_DBG, "MPI_Group_incl:: PE: %d,  groupArray[%d] = %d\n", my_pe, i, ranks[i]);
+	}
 	
-	return ret;
+	((MPID_Group)*newgroup).rank    = new_rank;
+	((MPID_Group)*newgroup).size    = n;
+	((MPID_Group)*newgroup).pe_rank = my_pe;
+	((MPID_Group)*newgroup).pesInGroup = pesGroupPtr;
+	
+	mlog(MPI_DBG, "MPI_Group_incl:: PE: %d,  new rank: %d\n", my_pe, new_rank);
+	
+	return MPI_SUCCESS;
 }
 
 /**
