@@ -21,13 +21,13 @@
  *
  * @param argc Pointer to the number of arguments 
  * @param argv Pointer to the argument vector 
- * @return MPI_SUCCESS, this always succeeds.
+ * @return status.
  */
 
 int MPI_Init( int *argc, char ***argv ){
 
 	int        i;
-	int        ret = MPI_SUCCESS;
+	int		   ret = MPI_SUCCESS;
 	void       *sharedBuffer;
 	MPID_Group *localGroupPtr;
 	int		   *pesGroupPtr;
@@ -50,12 +50,18 @@ int MPI_Init( int *argc, char ***argv ){
 		mlog(MPI_DBG, "MPI_Init::Buffer is in a symmetric segment for target pe: %d\n", my_pe);
 	}else{
 		mlog(MPI_ERR, "MPI_Init::Buffer is NOT in a symmetric segment for target pe: %d\n", my_pe);
-		ret = MPI_ERR_BUFFER;
+		return MPI_ERR_BUFFER;
 	}
 	
+	// Make space for the initial MPI_COMM_WORLD
+	MPI_COMM_WORLD = (MPID_Comm *)shmalloc( sizeof(MPID_Comm) );
+	if (MPI_COMM_WORLD == NULL ){
+		mlog(MPI_ERR, "MPI_Init_thread:: PE: %d, could not shmalloc space for MPI_COMM_WORLD.\n", my_pe);
+		return MPI_ERR_NO_MEM;
+	}
+
 	// Make space for the initial group & initialize:
-	localGroupPtr = (MPID_Group *)shmalloc(sizeof(MPID_Group));
-	
+	localGroupPtr = (MPID_Group *)shmalloc(sizeof(MPID_Group));	
 	if (localGroupPtr == NULL ){
 		mlog(MPI_ERR, "MPI_Init:: PE: %d, could not shmalloc space for MPID_Group.\n", my_pe);
 		return MPI_ERR_NO_MEM;
@@ -69,10 +75,10 @@ int MPI_Init( int *argc, char ***argv ){
 	//printf("MPI_Init_Thread: after start_pes, set up rank and local size\n");
 	
 	// Set up the rank and local_size (npes)
-	mpiComm[MPI_COMM_WORLD].rank          = my_pe;
-	mpiComm[MPI_COMM_WORLD].size          = npes;
-	mpiComm[MPI_COMM_WORLD].bufferPtr     = sharedBuffer;
- 	mpiComm[MPI_COMM_WORLD].localGroupPtr = localGroupPtr;
+	((MPID_Comm) *MPI_COMM_WORLD).rank          = my_pe;
+	((MPID_Comm) *MPI_COMM_WORLD).size          = npes;
+	((MPID_Comm) *MPI_COMM_WORLD).bufferPtr     = sharedBuffer;
+ 	((MPID_Comm) *MPI_COMM_WORLD).localGroupPtr = localGroupPtr;
 	
 	// Set values in the Comm's Group
 	((MPID_Group)*localGroupPtr).rank    = my_pe;
@@ -87,10 +93,9 @@ int MPI_Init( int *argc, char ***argv ){
 		
 #ifdef DEBUG
 	int me = _my_pe();
-	//printf("MPI_Init: Me: %d, [%d].rank: %d, [%d].local_size: %d\n", me, i, mpiComm[i].rank, i, mpiComm[i].local_size);
-	mlog(MPI_DBG, "MPI_Init: Me: %d, [0].rank: %d, [0].size: %d, [0].bufferPtr: %x\n", me, mpiComm[MPI_COMM_WORLD].rank, mpiComm[MPI_COMM_WORLD].size, mpiComm[MPI_COMM_WORLD].bufferPtr);
+	printf("MPI_Init_Thread: Me: %d, MPI_COMM_WORLD.rank: %d, .size: %d\n", me,((MPID_Comm) *MPI_COMM_WORLD).rank,((MPID_Comm) *MPI_COMM_WORLD).size);
+	mlog(MPI_DBG, "MPI_Init_Thread: Me: %d, MPI_COMM_WORLD.rank: %d, .size: %d, .bufferPtr: %x\n", me, ((MPID_Comm) *MPI_COMM_WORLD).rank, ((MPID_Comm) *MPI_COMM_WORLD).size,((MPID_Comm) *MPI_COMM_WORLD).bufferPtr);
 #endif
-	//}
 	
 	return ret;
 	
@@ -105,12 +110,12 @@ int MPI_Init( int *argc, char ***argv ){
  * @param required	Level of desired thread support provided
  * @param provided	Level of provided thread support 
  *
- * @return MPI_SUCCESS, this always succeeds.
+ * @return status.
  */
 
 int MPI_Init_thread( int *argc, char ***argv, int required, int *provided ){
 	int        i;
-	int        ret = MPI_SUCCESS;
+	int		   ret = MPI_SUCCESS;
 	void       *sharedBuffer;
 	MPID_Group *localGroupPtr;
 	int		   *pesGroupPtr;
@@ -133,9 +138,16 @@ int MPI_Init_thread( int *argc, char ***argv, int required, int *provided ){
 		mlog(MPI_DBG, "MPI_Init_thread::Buffer is in a symmetric segment for target pe: %d\n", my_pe);
 	}else{
 		mlog(MPI_ERR, "MPI_Init_thread::Buffer is NOT in a symmetric segment for target pe: %d\n", my_pe);
-		ret = MPI_ERR_BUFFER;
+		return MPI_ERR_BUFFER;
 	}
 
+	// Make space for the initial MPI_COMM_WORLD
+	MPI_COMM_WORLD = (MPID_Comm *)shmalloc( sizeof(MPID_Comm) );
+	if (MPI_COMM_WORLD == NULL ){
+		mlog(MPI_ERR, "MPI_Init_thread:: PE: %d, could not shmalloc space for MPI_COMM_WORLD.\n", my_pe);
+		return MPI_ERR_NO_MEM;
+	}
+		
 	// Make space for the initial group structure:
 	localGroupPtr = (MPID_Group *)shmalloc(sizeof(MPID_Group));
 	if (localGroupPtr == NULL ){
@@ -151,10 +163,10 @@ int MPI_Init_thread( int *argc, char ***argv, int required, int *provided ){
 	//printf("MPI_Init_Thread: after start_pes, set up rank and local size\n");
 	
 	// Set up the rank and local_size (npes)
-	mpiComm[MPI_COMM_WORLD].rank          = my_pe;
-	mpiComm[MPI_COMM_WORLD].size          = npes;
-	mpiComm[MPI_COMM_WORLD].bufferPtr     = sharedBuffer;
- 	mpiComm[MPI_COMM_WORLD].localGroupPtr = localGroupPtr;
+	((MPID_Comm) *MPI_COMM_WORLD).rank          = my_pe;
+	((MPID_Comm) *MPI_COMM_WORLD).size          = npes;
+	((MPID_Comm) *MPI_COMM_WORLD).bufferPtr     = sharedBuffer;
+ 	((MPID_Comm) *MPI_COMM_WORLD).localGroupPtr = localGroupPtr;
 	
 	// Set values in the Comm's Group
 	((MPID_Group)*localGroupPtr).rank    = my_pe;
@@ -169,10 +181,9 @@ int MPI_Init_thread( int *argc, char ***argv, int required, int *provided ){
 		
 #ifdef DEBUG
 		int me = _my_pe();
-		//printf("MPI_Init_Thread: Me: %d, [%d].rank: %d, [%d].local_size: %d\n", me, i, mpiComm[i].rank, i, mpiComm[i].local_size);
-		mlog(MPI_DBG, "MPI_Init_Thread: Me: %d, [0].rank: %d, [0].size: %d, [0].bufferPtr: %x\n", me, mpiComm[MPI_COMM_WORLD].rank, mpiComm[MPI_COMM_WORLD].size, mpiComm[MPI_COMM_WORLD].bufferPtr);
+		printf("MPI_Init_Thread: Me: %d, MPI_COMM_WORLD.rank: %d, .size: %d\n", me, ((MPID_Comm) *MPI_COMM_WORLD).rank,((MPID_Comm) *MPI_COMM_WORLD).size);
+		mlog(MPI_DBG, "MPI_Init_Thread: Me: %d, MPI_COMM_WORLD.rank: %d, .size: %d, .bufferPtr: %x\n", me, ((MPID_Comm) *MPI_COMM_WORLD).rank, ((MPID_Comm) *MPI_COMM_WORLD).size,((MPID_Comm) *MPI_COMM_WORLD).bufferPtr);
 #endif
-	//}
 	
 	/* Types of thread support:
 	 * MPI_THREAD_SINGLE
@@ -258,7 +269,7 @@ int MPI_Bcast ( void *source, int count, MPI_Datatype dataType, int root, MPI_Co
 	npes = _num_pes();
 	my_pe = shmem_my_pe();
 	
-	target = (void *)mpiComm[comm].bufferPtr;
+	target = (void *)((MPID_Comm)*comm).bufferPtr;
 	if (target != NULL){
         mlog(MPI_DBG,"MPI_Bcast:: mpiComm[comm].bufferPtr: %x\n", target);
 	}else{
@@ -279,7 +290,7 @@ int MPI_Bcast ( void *source, int count, MPI_Datatype dataType, int root, MPI_Co
 	
 	shmem_barrier_all ();
 	
-	shmem_broadcast64( mpiComm[comm].bufferPtr, source, count, root, 0, 0, npes, pSync);
+	shmem_broadcast64( ((MPID_Comm)*comm).bufferPtr, source, count, root, 0, 0, npes, pSync);
 	
 	
 #ifdef DEBUG
@@ -316,18 +327,15 @@ int MPI_Comm_create (MPI_Comm comm, MPI_Group group, MPI_Comm *newcomm){
 
 	// Do the following, if the process is in comm's group
 	i = 0;
-	while ( (i < mpiComm[comm].localGroupPtr.size) && !bIsPeInGroup) {
-		if (my_pe == mpiComm[comm].localGroupPtr.pesInGroup[i]) {
+	while ( ( i < ((MPID_Group)*((MPID_Comm)*comm).localGroupPtr).size ) && !bIsPeInGroup) {
+		if ( my_pe == ((MPID_Group)*((MPID_Comm)*comm).localGroupPtr).pesInGroup[i] ) {
 			bIsPeInGroup = 1;
 		}
 		i++;
 	}
 	
 	if (bIsPeInGroup) {
-		
-		// This will not really work.  It needs to be pointer to a new MpiComm sized space...
-		*newcomm = comm+1;
-		
+				
 		sharedBuffer = (void *)shmalloc(sizeof(char) * MAX_BUFFER_SIZE);
 		if (sharedBuffer == NULL ){
 			mlog(MPI_ERR, "MPI_Init_thread:: PE: %d, could not shmalloc space for symmetric memory.\n", my_pe);
@@ -341,7 +349,12 @@ int MPI_Comm_create (MPI_Comm comm, MPI_Group group, MPI_Comm *newcomm){
 			return MPI_ERR_BUFFER;
 		}
 		
-		// Make space for the initial group & initialize:
+		// Make space for the new coomuninicator & its group, then initialize:
+		*newcomm = (MPI_Comm)shmalloc( sizeof(MPID_Comm) );
+		if (*newcomm == NULL ){
+			mlog(MPI_ERR, "MPI_Comm_create:: PE: %d, could not shmalloc space for a new communicator.\n", my_pe);
+			return MPI_ERR_NO_MEM;
+		}
 		localGroupPtr = (MPID_Group *)shmalloc(sizeof(MPID_Group));
 		if (localGroupPtr == NULL ){
 			mlog(MPI_ERR, "MPI_Comm_create:: PE: %d, could not shmalloc space for MPID_Group.\n", my_pe);
@@ -355,15 +368,16 @@ int MPI_Comm_create (MPI_Comm comm, MPI_Group group, MPI_Comm *newcomm){
 		((MPID_Group)*localGroupPtr).rank    = group.rank;
 		((MPID_Group)*localGroupPtr).size    = group.size;
 		((MPID_Group)*localGroupPtr).pesInGroup = pesGroupPtr;
-		
-		mpiComm[*newcomm].localGroupPtr = localGroupPtr;
-		
+				
 		printf("MPI_Comm_create: after start_pes, set up rank and local size\n");
 		
-		// Set up the rank and local_size (npes)
-		mpiComm[*newcomm].rank      = my_pe;
-		mpiComm[*newcomm].size      = group.size;
-		mpiComm[*newcomm].bufferPtr = sharedBuffer;
+		// Set up the rank and local_size (npes)                                                       
+		MPID_Comm *newCommStruct;		// Because this is confusing...
+		newCommStruct = *newcomm;
+		((MPID_Comm)*newCommStruct).rank      = my_pe;
+		((MPID_Comm)*newCommStruct).size      = group.size;
+		((MPID_Comm)*newCommStruct).bufferPtr = sharedBuffer;
+		((MPID_Comm)*newCommStruct).localGroupPtr = localGroupPtr;
 		
 		for (i=0; i<group.size; i++){
 			printf("MPI_Comm_create:: PE: %d, group[%d] = %d\n", my_pe, i, group.pesInGroup[i]);
@@ -372,8 +386,8 @@ int MPI_Comm_create (MPI_Comm comm, MPI_Group group, MPI_Comm *newcomm){
 		
 		
 #ifdef DEBUG
-		printf("MPI_Comm_Create: PE: %d, [%d].rank: %d, [%d].size: %d\n", my_pe, i, mpiComm[*newcomm].rank, i, mpiComm[*newcomm].size);
-		//mlog(MPI_DBG, "MPI_Init_Thread: Me: %d, [0].rank: %d, [0].size: %d, [0].bufferPtr: %x\n", me, mpiComm[MPI_COMM_WORLD].rank, mpiComm[MPI_COMM_WORLD].size, mpiComm[MPI_COMM_WORLD].bufferPtr);
+		printf("MPI_Comm_Create: PE: %d, newcomm.rank: %d, .size: %d\n", my_pe, ((MPID_Comm)**newcomm).rank, ((MPID_Comm)**newcomm).size);
+		mlog(MPI_DBG, "MPI_Comm_Create: Me: %d, newcomm.rank: %d, .size: %d, .bufferPtr: %x\n", my_pe, ((MPID_Comm)**newcomm).rank, ((MPID_Comm)**newcomm).size, ((MPID_Comm)**newcomm).bufferPtr);
 #endif
 	}
 	return MPI_SUCCESS;
@@ -406,11 +420,11 @@ int MPI_Comm_group (MPI_Comm comm,	MPI_Group *group){
 	
 	int ret = MPI_SUCCESS;
 	
-	group = mpiComm[comm].localGroupPtr;
+	group = ((MPID_Comm)*comm).localGroupPtr;
 	
 	if (group == NULL){
 		int my_pe = shmem_my_pe();
-		mlog(MPI_ERR, "MPI_Comm_group, my_pe: %-8d, mpiComm[%d].localGroupPtr is NULL.\n",  my_pe, comm);
+		mlog(MPI_ERR, "MPI_Comm_group, my_pe: %-8d, comm.localGroupPtr is NULL.\n",  my_pe);
 		return MPI_ERR_COMM;
 	}
 	
@@ -430,11 +444,11 @@ int MPI_Comm_rank (MPI_Comm comm, int *rank){
 	
 	MPID_Group *groupPtr;
 	
-	groupPtr = mpiComm[comm].localGroupPtr;
+	groupPtr = ((MPID_Comm)*comm).localGroupPtr;
 	
 	if (groupPtr == NULL){
 		int my_pe = shmem_my_pe();
-		mlog(MPI_ERR, "MPI_Comm_rank, my_pe: %-8d, mpiComm[%d].localGroupPtr is NULL.\n",  my_pe, comm);
+		mlog(MPI_ERR, "MPI_Comm_rank, my_pe: %-8d, comm.localGroupPtr is NULL.\n",  my_pe);
 		return MPI_ERR_COMM;
 	}
 	*rank = ((MPID_Group)*groupPtr).rank;
@@ -459,11 +473,11 @@ int MPI_Comm_size(MPI_Comm comm, int *size ){
 	
 	MPID_Group *groupPtr;
 	
-	groupPtr = mpiComm[comm].localGroupPtr;
+	groupPtr = ((MPID_Comm)*comm).localGroupPtr;
 	
 	if (groupPtr == NULL){
 		int my_pe = shmem_my_pe();
-		mlog(MPI_ERR, "MPI_Comm_size, my_pe: %-8d, mpiComm[%d].localGroupPtr is NULL.\n",  my_pe, comm);
+		mlog(MPI_ERR, "MPI_Comm_size, my_pe: %-8d, comm.localGroupPtr is NULL.\n",  my_pe);
 		return MPI_ERR_COMM;
 	}
 	*size = ((MPID_Group)*groupPtr).size;
@@ -548,13 +562,13 @@ int MPI_Allgather (void *sendbuf, int sendcount, MPI_Datatype sendtype, void *re
 		pSync[i] = _SHMEM_SYNC_VALUE;
     }
 	
-	MPI_Barrier( MPI_COMM_WORLD );
+	MPI_Barrier( comm );
 	
 	if ( isCollect32 ){
-		shmem_collect32(recvbuf, sendbuf, sendcount, MASTER, 0, numPes, pSync);
+		shmem_collect32(recvbuf, sendbuf, sendcount, 0, 0, numPes, pSync);
 	}
 	else {
-		shmem_collect64(recvbuf, sendbuf, sendcount, MASTER, 0, numPes, pSync);
+		shmem_collect64(recvbuf, sendbuf, sendcount, 0, 0, numPes, pSync);
 	}	
 	
 	return MPI_SUCCESS;
@@ -808,7 +822,7 @@ int MPI_Recv (void *buf, int count, MPI_Datatype datatype, int source, int tag, 
 	void *recv_buf;
 	int my_pe = shmem_my_pe();
 	
-	recv_buf = mpiComm[comm].bufferPtr;
+	recv_buf = ((MPID_Comm)*comm).bufferPtr;
 	
 	if (recv_buf == NULL){
 	  ret = MPI_ERR_BUFFER;// some sort of proper error here
@@ -885,7 +899,7 @@ int MPI_Send (void *buf, int count, MPI_Datatype datatype, int dest, int tag, MP
 	int my_pe = shmem_my_pe();
 	void *recv_buf;
 	
-	recv_buf = mpiComm[comm].bufferPtr;
+	recv_buf = ((MPID_Comm)*comm).bufferPtr;
 	
 	if (recv_buf == NULL){
 		ret = MPI_ERR_BUFFER;// some sort of proper error here
@@ -967,7 +981,7 @@ int MPI_Irecv (void *buf, int count, MPI_Datatype datatype, int source, int tag,
 	void *recv_buf;
 	int my_pe = shmem_my_pe();
 	
-	recv_buf = mpiComm[comm].bufferPtr;
+	recv_buf = ((MPID_Comm)*comm).bufferPtr;
 	
 	if (recv_buf == NULL){
 		ret = MPI_ERR_BUFFER;// some sort of proper error here
@@ -1058,7 +1072,7 @@ int MPI_Isend(void *buf, int count, MPI_Datatype datatype, int dest, int tag, MP
 	int my_pe = shmem_my_pe();
 	void *recv_buf;
 	
-	recv_buf = mpiComm[comm].bufferPtr;
+	recv_buf = ((MPID_Comm)*comm).bufferPtr;
 	
 	if (recv_buf == NULL){
 		ret = MPI_ERR_BUFFER;// some sort of proper error here
