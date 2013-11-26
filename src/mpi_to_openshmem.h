@@ -167,6 +167,7 @@ typedef struct MPID_Group {
     int               size;           /* Size of a group */
     int               rank;           /* rank of this process relative to this group */
     int               pe_rank;        /* original pe rank */
+    int               *pesInGroup;     /* integer array of all of the PEs in this group. Rank is the index. */
 } MPID_Group;
 
 typedef struct MPID_Comm {
@@ -188,8 +189,9 @@ MPID_Comm  mpiComm[MAX_NUM_COMM];
 typedef MPID_Group		MPI_Group;
 typedef MPID_Request    MPI_Request;
 typedef int				MPI_Comm;
+typedef MPID_Comm		*MPI_Comm_Ptr;
+MPI_Comm_Ptr			MPI_Comm1;
 
-//MPI_Comm comm;
 
 /* Define all of the subroutines */
 //struct mpi_to_openshmem_t * ( int mpiType, int required, int *provided, int debugLevel ); 
