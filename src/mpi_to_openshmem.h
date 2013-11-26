@@ -11,15 +11,12 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-//#include <mpi.h>
 #include <shmem.h>
 #include <stdint.h>
 #include <pthread.h>
 #include "Mlog/mlog.h"
 #include "Mlog/mlogfacs.h"
 
-#define MASTER			0
-#define MAX_NUM_COMM   10
 #define INT_32			4	// number of bytes for a 32 bit integer
 #define INT_64			8	// number of bytes for a 64 bit integer
 
@@ -32,7 +29,6 @@ long pSync[_SHMEM_BCAST_SYNC_SIZE];
 
 
 /**** from mpi.h.in									****/
-#define MPI_COMM_WORLD		0
 
 #define MPI_SUCCESS          0      /* Successful return code */
 #define MPI_ERR_NO_MEM       1      /* Alloc_mem could not allocate memory */
@@ -162,7 +158,6 @@ typedef struct {
 } MPI_Status;
 /****                									****/
 
-
 typedef struct MPID_Group {
     int               size;           /* Size of a group */
     int               rank;           /* rank of this process relative to this group */
@@ -185,12 +180,10 @@ typedef struct MPID_Request{
 	void			*expected;		/* pointer to expected value in the last address */
 } MPID_Request;
 
-MPID_Comm  mpiComm[MAX_NUM_COMM];
 typedef MPID_Group		MPI_Group;
 typedef MPID_Request    MPI_Request;
-typedef int				MPI_Comm;
-typedef MPID_Comm		*MPI_Comm_Ptr;
-MPI_Comm_Ptr			MPI_Comm1;
+typedef MPID_Comm		*MPI_Comm;
+MPI_Comm MPI_COMM_WORLD;			/* Communicator handles are pointers to structures...*/
 
 
 /* Define all of the subroutines */
