@@ -2,7 +2,8 @@
  *  groups.c                                                                             
  *  mpiToOpenshmem                                                                       
  *                                                                                       
- *  Simple test for doing groups and communicator commands.  Needs 4 Pes!                          
+ *  Simple test for doing groups and communicator commands.  Needs 4 PEs!   
+ *  It's a rather silly test, since it is hard coded for 4 PEs.
  *                                                                                       
  *  Created by gingery on 11/20/13.                                                      
  *  Copyright 2013 LANL. All rights reserved.                                            
@@ -60,6 +61,11 @@ int main(int argc, char *argv[])
 	
 	if ((ret = MPI_Comm_create(MPI_COMM_WORLD, new_group, &new_comm)) != MPI_SUCCESS) {
 		printf( "Rank: %d - Error while creating the new communicator\n", rank);
+		return MPI_ERR_COMM;
+	}
+
+	if ((ret = MPI_Comm_dup(new_comm, &dup_comm)) != MPI_SUCCESS) {
+		printf( "Rank: %d - Error while duplicating the new communicator\n", rank);
 		return MPI_ERR_COMM;
 	}
 	
