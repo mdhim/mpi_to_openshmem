@@ -220,6 +220,11 @@ int MPI_Init_thread( int *argc, char ***argv, int required, int *provided ){
 int MPI_Abort (MPI_Comm comm, int errorcode){
 	int ret = MPI_SUCCESS;
 	
+	if (comm == NULL) {
+		mlog(MPI_ERR, "Invalid communicator.\n");
+		return MPI_ERR_COMM;
+	}
+	
 	// Clear all of the outstanding puts, and that's pretty much all  we can do..
 	shmem_barrier_all();
 	errorcode = MPI_SUCCESS;
@@ -238,6 +243,12 @@ int MPI_Abort (MPI_Comm comm, int errorcode){
 int MPI_Barrier (MPI_Comm comm){
 
 	int ret = MPI_SUCCESS;
+
+	if (comm == NULL) {
+		mlog(MPI_ERR, "Invalid communicator.\n");
+		return MPI_ERR_COMM;
+	}
+	
 	shmem_barrier_all ();  // shmem_barrier (int PE_start, int logPE_stride, int PE_size, long *pSync)
 	return ret;
 }
@@ -266,6 +277,11 @@ int MPI_Bcast ( void *source, int count, MPI_Datatype dataType, int root, MPI_Co
 	int  npes, my_pe;
 	void *target;
 
+	if (comm == NULL) {
+		mlog(MPI_ERR, "Invalid communicator.\n");
+		return MPI_ERR_COMM;
+	}
+	
 	npes = _num_pes();
 	my_pe = shmem_my_pe();
 	
@@ -325,6 +341,11 @@ int MPI_Comm_create (MPI_Comm comm, MPI_Group group, MPI_Comm *newcomm){
 	int npes =  _num_pes ();
 	int my_pe = shmem_my_pe();
 
+	if (comm == NULL) {
+		mlog(MPI_ERR, "Invalid communicator.\n");
+		return MPI_ERR_COMM;
+	}
+	
 	// Do the following, if the process is in comm's group
 	i = 0;
 	while ( ( i < ((MPID_Group)*((MPID_Comm)*comm).groupPtr).size ) && !bIsPeInGroup) {
@@ -412,6 +433,11 @@ int MPI_Comm_dup (MPI_Comm comm, MPI_Comm *newcomm){
 	int npes =  _num_pes ();
 	int my_pe = shmem_my_pe();
 	
+	if (comm == NULL) {
+		mlog(MPI_ERR, "Invalid communicator.\n");
+		return MPI_ERR_COMM;
+	}
+		
 	// Create new shared memory space for the new communicator.                                                                                               
 	sharedBuffer = (void *)shmalloc(sizeof(char) * MAX_BUFFER_SIZE);
 	if (sharedBuffer == NULL ){
@@ -480,6 +506,26 @@ int MPI_Comm_dup (MPI_Comm comm, MPI_Comm *newcomm){
 }
 
 /**
+ * MPI_Comm_free
+ * Marks the communicator object for deallocation
+ *
+ * @param comm	communicator
+ * 
+ * @return status
+ */
+int MPI_Comm_free (MPI_Comm comm){
+	
+	int ret = MPI_SUCCESS;
+	
+	if (comm == NULL) {
+		mlog(MPI_ERR, "Invalid communicator.\n");
+		return MPI_ERR_COMM;
+	}
+		
+	return ret;
+}
+
+/**
  * MPI_Comm_group
  * Accesses the group associated with given communicator
  *
@@ -491,6 +537,11 @@ int MPI_Comm_dup (MPI_Comm comm, MPI_Comm *newcomm){
 int MPI_Comm_group (MPI_Comm comm,	MPI_Group *group){
 	
 	int ret = MPI_SUCCESS;
+	
+	if (comm == NULL) {
+		mlog(MPI_ERR, "Invalid communicator.\n");
+		return MPI_ERR_COMM;
+	}
 	
 	group = ((MPID_Comm)*comm).groupPtr;
 	
@@ -516,6 +567,11 @@ int MPI_Comm_rank (MPI_Comm comm, int *rank){
 	
 	MPID_Group *groupPtr;
 	
+	if (comm == NULL) {
+		mlog(MPI_ERR, "Invalid communicator.\n");
+		return MPI_ERR_COMM;
+	}
+		
 	groupPtr = ((MPID_Comm)*comm).groupPtr;
 	
 	if (groupPtr == NULL){
@@ -545,6 +601,11 @@ int MPI_Comm_size(MPI_Comm comm, int *size ){
 	
 	MPID_Group *groupPtr;
 	
+	if (comm == NULL) {
+		mlog(MPI_ERR, "Invalid communicator.\n");
+		return MPI_ERR_COMM;
+	}
+		
 	groupPtr = ((MPID_Comm)*comm).groupPtr;
 	
 	if (groupPtr == NULL){
@@ -590,6 +651,11 @@ int MPI_Allgather (void *sendbuf, int sendcount, MPI_Datatype sendtype, void *re
 	numPes = _num_pes();
 	my_pe = shmem_my_pe();
 	
+	if (comm == NULL) {
+		mlog(MPI_ERR, "Invalid communicator.\n");
+		return MPI_ERR_COMM;
+	}
+		
 	// Verify that you have valid buffer pointer and space:
 	if ( (recvbuf == NULL) || (sendbuf == NULL) ){
 		mlog(MPI_ERR, "Error: buffer has an invalid pointer (it's NULL) PE: %d\n", my_pe);
@@ -673,6 +739,11 @@ int MPI_Gather (void *sendbuf, int sendcount, MPI_Datatype sendtype, void *recvb
 	numPes = _num_pes();
 	my_pe = shmem_my_pe();
 	
+	if (comm == NULL) {
+		mlog(MPI_ERR, "Invalid communicator.\n");
+		return MPI_ERR_COMM;
+	}
+		
 	// Verify that you have valid buffer pointer and space:
 	if ( (recvbuf == NULL) || (sendbuf == NULL) ){
 		mlog(MPI_ERR, "Error: buffer has an invalid pointer (it's NULL) PE: %d\n", my_pe);
@@ -755,7 +826,12 @@ int MPI_Gather (void *sendbuf, int sendcount, MPI_Datatype sendtype, void *recvb
 int MPI_Gatherv (void *sendbuf, int sendcount, MPI_Datatype sendtype, void *recvbuf, int *recvcount, int *displs, MPI_Datatype recvtype, int root, MPI_Comm comm){
 
 	//int i;
-	int numPes, my_pe;
+	int numPes, my_pe;	
+	
+	if (comm == NULL) {
+		mlog(MPI_ERR, "Invalid communicator.\n");
+		return MPI_ERR_COMM;
+	}
 	
 	numPes = _num_pes();
 	my_pe = shmem_my_pe();
@@ -844,7 +920,7 @@ int MPI_Group_incl (MPI_Group group, int n, int *ranks, MPI_Group *newgroup){
 	int *pesGroupPtr;
 
 	my_pe = shmem_my_pe();
-
+	
 	pesGroupPtr = (int *)shmalloc(sizeof(int) * n);
 	if (pesGroupPtr == NULL ){
 		mlog(MPI_ERR, "MPI_Group_incl:: PE: %d, could not shmalloc space for MPI_Group's rank array.\n", my_pe);
@@ -894,6 +970,11 @@ int MPI_Recv (void *buf, int count, MPI_Datatype datatype, int source, int tag, 
 	void *recv_buf;
 	int my_pe = shmem_my_pe();
 	
+	if (comm == NULL) {
+		mlog(MPI_ERR, "Invalid communicator.\n");
+		return MPI_ERR_COMM;
+	}
+		
 	recv_buf = ((MPID_Comm)*comm).bufferPtr;
 	
 	if (recv_buf == NULL){
@@ -970,6 +1051,11 @@ int MPI_Send (void *buf, int count, MPI_Datatype datatype, int dest, int tag, MP
 	int  ret;
 	int my_pe = shmem_my_pe();
 	void *recv_buf;
+	
+	if (comm == NULL) {
+		mlog(MPI_ERR, "Invalid communicator.\n");
+		return MPI_ERR_COMM;
+	}
 	
 	recv_buf = ((MPID_Comm)*comm).bufferPtr;
 	
@@ -1053,6 +1139,11 @@ int MPI_Irecv (void *buf, int count, MPI_Datatype datatype, int source, int tag,
 	void *recv_buf;
 	int my_pe = shmem_my_pe();
 	
+	if (comm == NULL) {
+		mlog(MPI_ERR, "Invalid communicator.\n");
+		return MPI_ERR_COMM;
+	}
+		
 	recv_buf = ((MPID_Comm)*comm).bufferPtr;
 	
 	if (recv_buf == NULL){
@@ -1144,6 +1235,11 @@ int MPI_Isend(void *buf, int count, MPI_Datatype datatype, int dest, int tag, MP
 	int my_pe = shmem_my_pe();
 	void *recv_buf;
 	
+	if (comm == NULL) {
+		mlog(MPI_ERR, "Invalid communicator.\n");
+		return MPI_ERR_COMM;
+	}
+	
 	recv_buf = ((MPID_Comm)*comm).bufferPtr;
 	
 	if (recv_buf == NULL){
@@ -1223,7 +1319,7 @@ int MPI_Isend(void *buf, int count, MPI_Datatype datatype, int dest, int tag, MP
  * @param outbuf	output buffer start (choice)
  * @param outcount	number of items to be unpacked (integer)
  * @param datatype	datatype of each output data item (handle)
- * @param comm		communicator for packed message (handle)
+ * @param comm		communicator for packed message (handle)
  *
  * @return 
  */
@@ -1234,7 +1330,12 @@ int MPI_Unpack (void *inbuf, int insize, int *position, void *outbuf, int outcou
 	int my_pe = shmem_my_pe();
 	int rank;
 	
-	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+	if (comm == NULL) {
+		mlog(MPI_ERR, "Invalid communicator.\n");
+		return MPI_ERR_COMM;
+	}
+	
+	MPI_Comm_rank(comm, &rank);
 	
 	// Figure out how many bytes the datatype has                                                                                
 	switch (datatype){
@@ -1312,7 +1413,12 @@ int MPI_Pack(void *inbuf, int incount, MPI_Datatype datatype, void *outbuf, int 
 	int my_pe = shmem_my_pe();
 	int rank;
 	
-	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+	if (comm == NULL) {
+		mlog(MPI_ERR, "Invalid communicator.\n");
+		return MPI_ERR_COMM;
+	}
+		
+	MPI_Comm_rank(comm, &rank);
 	
 	// Figure out how many bytes the datatype has                                                                               
 	switch (datatype){
