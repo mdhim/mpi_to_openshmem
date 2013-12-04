@@ -7,13 +7,11 @@
 #ifndef      __STORE_H
 #define      __STORE_H
 
-#include "unqlite.h"
 #include "uthash.h"
 
 /* Storage Methods */
-#define UNQLITE 1 //UNQLITE storage method
-#define LEVELDB 2 //LEVELDB storage method
-
+#define LEVELDB 1 //LEVELDB storage method
+#define ROCKSDB 4 //RocksDB
 /* mdhim_store_t flags */
 #define MDHIM_CREATE 1 //Implies read/write 
 #define MDHIM_RDONLY 2
@@ -30,29 +28,31 @@ struct mdhim_store_opts_t;
 /* Function pointers for abstracting data stores */
 typedef int (*mdhim_store_open_fn_t)(void **db_handle, void **db_stats, char *path, int flags, 
 				     struct mdhim_store_opts_t *mstore_opts);
-typedef int (*mdhim_store_put_fn_t)(void *db_handle, void *key, int key_len, 
+typedef int (*mdhim_store_put_fn_t)(void *db_handle, void *key, int32_t key_len, 
 				    void *data, int32_t data_len, 
 				    struct mdhim_store_opts_t *mstore_opts);
+typedef int (*mdhim_store_batch_put_fn_t)(void *db_handle, void **keys, int32_t *key_lens, 
+					  void **data, int32_t *data_lens, int num_records, 
+					  struct mdhim_store_opts_t *mstore_opts);
 typedef int (*mdhim_store_get_fn_t)(void *db_handle, void *key, int key_len, void **data, int32_t *data_len, 
 				    struct mdhim_store_opts_t *mstore_opts);
 typedef int (*mdhim_store_get_next_fn_t)(void *db_handle, void **key, 
 					 int *key_len, void **data, 
-					 int32_t *data_len, void **iterator,
+					 int32_t *data_len, 
 					 struct mdhim_store_opts_t *mstore_opts);
 typedef int (*mdhim_store_get_prev_fn_t)(void *db_handle, void **key, 
 					 int *key_len, void **data, 
-					 int32_t *data_len, void **iterator,
+					 int32_t *data_len,
 					 struct mdhim_store_opts_t *mstore_opts);
 typedef int (*mdhim_store_del_fn_t)(void *db_handle, void *key, int key_len,
 				    struct mdhim_store_opts_t *mstore_opts);
-typedef int (*mdhim_store_iter_free_fn_t)(void **iterator);
 typedef int (*mdhim_store_commit_fn_t)(void *db_handle);
 typedef int (*mdhim_store_close_fn_t)(void *db_handle, void *db_stats,
 				      struct mdhim_store_opts_t *mstore_opts);
 
 //Used for storing stats in a hash table
 struct mdhim_stat {
-	int key;              //Key (slice number)
+	int key;                   //Key (slice number)
 	void *max;                 //Max key
 	void *min;                 //Min key
 	uint64_t num;              //Number of keys in this slice
@@ -111,14 +111,14 @@ struct mdhim_store_t {
 	//Pointers to functions based on data store
 	mdhim_store_open_fn_t open;
 	mdhim_store_put_fn_t put;
+	mdhim_store_batch_put_fn_t batch_put;
 	mdhim_store_get_fn_t get;
 	mdhim_store_get_next_fn_t get_next;
 	mdhim_store_get_prev_fn_t get_prev;
 	mdhim_store_del_fn_t del;
-        mdhim_store_iter_free_fn_t iter_free;
 	mdhim_store_commit_fn_t commit;
 	mdhim_store_close_fn_t close;
-       
+
         //Hashtable for stats
 	struct mdhim_stat *mdhim_store_stats;
 };
@@ -142,6 +142,6 @@ struct mdhim_store_opts_t {
 	void *db_ptr14;
 };
 
-//Initializes the data store based on the type given (i.e., UNQLITE, LEVELDB, etc...)
+//Initializes the data store based on the type given (i.e., LEVELDB, etc...)
 struct mdhim_store_t *mdhim_db_init(int db_type);
 #endif
