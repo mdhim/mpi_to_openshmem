@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include "mpi.h"
 #include "mdhim.h"
-#include "db_options.h"
+#include "mdhim_options.h"
 
 int main(int argc, char **argv) {
 	int ret;
@@ -12,27 +12,25 @@ int main(int argc, char **argv) {
 	int value;
 	struct mdhim_rm_t *rm;
 	struct mdhim_getrm_t *grm;
-        db_options_t *db_opts;
-	
-	        printf ("Before calling mpi_init  *************\n");
+        mdhim_options_t *db_opts;
 
 	ret = MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &provided);
 	if (ret != MPI_SUCCESS) {
 		printf("Error initializing MPI with threads\n");
 		exit(1);
 	}
-	printf ("Provided: %d *************\n", provided);
+
 	if (provided != MPI_THREAD_MULTIPLE) {
                 printf("Not able to enable MPI_THREAD_MULTIPLE mode\n");
                 exit(1);
         }
         
-        db_opts = db_options_init();
-        db_options_set_path(db_opts, "./");
-        db_options_set_name(db_opts, "mdhimTstDB");
-        db_options_set_type(db_opts, 2); // type = 2 (LevelDB)
-        db_options_set_key_type(db_opts, MDHIM_INT_KEY); //Key_type = 1 (int)
-	db_options_set_debug_level(db_opts, MLOG_DBG);
+        db_opts = mdhim_options_init();
+        mdhim_options_set_db_path(db_opts, "./");
+        mdhim_options_set_db_name(db_opts, "mdhimTstDB");
+        mdhim_options_set_db_type(db_opts, LEVELDB);
+        mdhim_options_set_key_type(db_opts, MDHIM_INT_KEY); //Key_type = 1 (int)
+	mdhim_options_set_debug_level(db_opts, MLOG_CRIT);
 
 	md = mdhimInit(MPI_COMM_WORLD, db_opts);
 	if (!md) {
@@ -51,6 +49,8 @@ int main(int argc, char **argv) {
 		printf("Successfully inserted key/value into MDHIM\n");
 	}
 
+
+	mdhim_full_release_msg(rm);
 	//Commit the database
 	ret = mdhimCommit(md);
 	if (ret != MDHIM_SUCCESS) {
@@ -68,7 +68,9 @@ int main(int argc, char **argv) {
 		printf("Successfully got value: %d from MDHIM\n", *((int *) grm->value));
 	}
 
+	mdhim_full_release_msg(grm);
 	ret = mdhimClose(md);
+	mdhim_options_destroy(db_opts);
 	if (ret != MDHIM_SUCCESS) {
 		printf("Error closing MDHIM\n");
 	}
