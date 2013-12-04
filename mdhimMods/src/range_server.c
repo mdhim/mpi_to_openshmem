@@ -13,10 +13,10 @@
 #include "mdhim.h"
 #include "range_server.h"
 #include "partitioner.h"
-#include "db_options.h"
+#include "mdhim_options.h"
 
 /**
- * is_range_server
+ * im_range_server
  * checks if I'm a range server
  *
  * @param md  Pointer to the main MDHIM structure
@@ -30,6 +30,60 @@ int im_range_server(struct mdhim_t *md) {
 	
 	return 0;
 }
+
+void add_timing(struct timeval start, struct timeval end, int num, 
+		struct mdhim_t *md, int mtype) {
+	long double elapsed;
+
+	elapsed = (long double) (end.tv_sec - start.tv_sec) + 
+		((long double) (end.tv_usec - start.tv_usec)/1000000.0);
+	if (mtype == MDHIM_PUT || mtype == MDHIM_BULK_PUT) {
+		md->mdhim_rs->put_time += elapsed;
+		md->mdhim_rs->num_put += num;
+	} else if (mtype == MDHIM_GET || mtype == MDHIM_BULK_GET) {
+		md->mdhim_rs->get_time += elapsed;
+		md->mdhim_rs->num_get += num;
+	}
+}
+
+//Open the binary manifest
+/*int open_manifest(struct mdhim_t *md) {
+	int fd;
+  
+	fd = open(md->db_opts->db_path, O_WRONLY | O_CREAT | O_TRUNC);
+	if (fd < 0) {
+		mlog(MDHIM_SERVER_CRIT, "Rank: %d - Error opening manifest file", 
+		     md->mdhim_rank);
+	}
+
+	return fd;
+	}*/
+
+//Write a binary manifest describing
+/*void write_manifest(struct mdhim_t *md) {
+	//Range server with number 1 is in charge of the manifest
+	if (md->mdhim_rs->info.rangesrv_num != 1) {
+		return;
+	}
+
+	if ((fd = open_manifest(md)) < 0) {
+		return;
+	}
+	}*/
+
+/*void read_manifest(struct mdhim_t *md) {
+	int fd;
+
+	//Range server with number 1 is in charge of the manifest
+	if (md->mdhim_rs->info.rangesrv_num == 1) {
+		return;
+	}
+
+	if ((fd = open_manifest(md)) < 0) {
+		return;
+	}
+	}*/
+
 /**
  * send_locally_or_remote
  * Sends the message remotely or locally
@@ -228,16 +282,17 @@ int load_stats(struct mdhim_t *md) {
 		*val_len = 0;		
 		md->mdhim_rs->mdhim_store->get_next(md->mdhim_rs->mdhim_store->db_stats, 
 						    (void **) slice, key_len, (void **) val, 
-						    val_len, NULL, &opts);	
-		if (old_slice) {
-			free(old_slice);
-			old_slice = NULL;
-		}
-
+						    val_len, &opts);	
+		
 		//Add the stat to the hash table - the value is 0 if the key was not in the db
 		if (!*val || !*val_len) {
 			done = 1;
 			continue;
+		}
+
+		if (old_slice) {
+			free(old_slice);
+			old_slice = NULL;
 		}
 
 		mlog(MDHIM_SERVER_DBG, "Rank: %d - Loaded stat for slice: %d with " 
@@ -270,6 +325,7 @@ int load_stats(struct mdhim_t *md) {
 
 	free(val);
 	free(val_len);
+	free(key_len);
 	free(*slice);
 	free(slice);
 	return MDHIM_SUCCESS;
@@ -323,6 +379,7 @@ int write_stats(struct mdhim_t *md) {
 		free(stat->max);
 		free(stat->min);
 		free(stat);
+		free(dbstat);
 	}
 
 	return MDHIM_SUCCESS;
@@ -402,20 +459,15 @@ int range_server_stop(struct mdhim_t *md) {
 	work_item *head, *temp_item;
 	int ret;	
 	struct mdhim_store_opts_t opts;
-	int i;
 
 	//Cancel the worker thread
 	if ((ret = pthread_cancel(md->mdhim_rs->worker)) != 0) {
 		mlog(MDHIM_SERVER_DBG, "Rank: %d - Error canceling worker thread", 
 		     md->mdhim_rank);
 	}
-
+	
 	/* Wait for the threads to finish */
-	for (i = 0; i < LISTENER_THREADS; i++) {
-		pthread_join(md->mdhim_rs->listeners[i], NULL);
-	}
-	free(md->mdhim_rs->listeners);
-
+	pthread_join(md->mdhim_rs->listener, NULL);
 	pthread_join(md->mdhim_rs->worker, NULL);
 
 	//Destroy the condition variables
@@ -457,7 +509,13 @@ int range_server_stop(struct mdhim_t *md) {
 		     md->mdhim_rank);
 	}
 
+	mlog(MDHIM_SERVER_INFO, "Rank: %d - Inserted: %ld records in %Lf seconds", 
+	     md->mdhim_rank, md->mdhim_rs->num_put, md->mdhim_rs->put_time);
+	mlog(MDHIM_SERVER_INFO, "Rank: %d - Retrieved: %ld records in %Lf seconds", 
+	     md->mdhim_rank, md->mdhim_rs->num_get, md->mdhim_rs->get_time);
 	//Free the range server information
+	MPI_Comm_free(&md->mdhim_rs->rs_comm);
+	free(md->mdhim_rs->mdhim_store);
 	free(md->mdhim_rs);
 	md->mdhim_rs = NULL;
 	
@@ -485,6 +543,8 @@ int range_server_put(struct mdhim_t *md, struct mdhim_putm_t *im, int source) {
 	int32_t new_value_len;
 	void *old_value;
 	int32_t old_value_len;
+	struct timeval start, end;
+	int inserted = 0;
 
 	set_store_opts(md, &opts, 0);
 	value = malloc(sizeof(void *));
@@ -492,7 +552,8 @@ int range_server_put(struct mdhim_t *md, struct mdhim_putm_t *im, int source) {
 	value_len = malloc(sizeof(int32_t));
 	*value_len = 0;
         
-	//Check for the key's existence
+	gettimeofday(&start, NULL);
+       //Check for the key's existence
 	md->mdhim_rs->mdhim_store->get(md->mdhim_rs->mdhim_store->db_handle, 
 				       im->key, im->key_len, value, 
 				       value_len, &opts);
@@ -502,7 +563,7 @@ int range_server_put(struct mdhim_t *md, struct mdhim_putm_t *im, int source) {
 	}
 
         //If the option to append was specified and there is old data, concat the old and new
-	if (exists &&  md->db_opts->db_append == MDHIM_DB_APPEND) {
+	if (exists &&  md->db_opts->db_value_append == MDHIM_DB_APPEND) {
 		old_value = *value;
 		old_value_len = *value_len;
 		new_value_len = old_value_len + im->value_len;
@@ -514,6 +575,9 @@ int range_server_put(struct mdhim_t *md, struct mdhim_putm_t *im, int source) {
 		new_value_len = im->value_len;
 	}
     
+	if (*value && *value_len) {
+		free(*value);
+	}
 	free(value);
 	free(value_len);
         //Put the record in the database
@@ -524,13 +588,18 @@ int range_server_put(struct mdhim_t *md, struct mdhim_putm_t *im, int source) {
 		mlog(MDHIM_SERVER_CRIT, "Rank: %d - Error putting record", 
 		     md->mdhim_rank);	
 		error = ret;
+	} else {
+		inserted = 1;
 	}
 
 	if (!exists && error == MDHIM_SUCCESS) {
 		update_all_stats(md, im->key, im->key_len);
-	}else {
+	} else {
 		mlog(MDHIM_SERVER_DBG, "Rank: %d - not updating all stats", md->mdhim_rank);
 	}
+
+	gettimeofday(&end, NULL);
+	add_timing(start, end, inserted, md, MDHIM_PUT);
 
 	//Create the response message
 	rm = malloc(sizeof(struct mdhim_rm_t));
@@ -546,12 +615,19 @@ int range_server_put(struct mdhim_t *md, struct mdhim_putm_t *im, int source) {
 	//Send response
 	ret = send_locally_or_remote(md, source, rm);
 
-	if (exists && md->db_opts->db_append == MDHIM_DB_APPEND) {
+	//Free memory
+	if (exists && md->db_opts->db_value_append == MDHIM_DB_APPEND) {
 		free(new_value);
 	}
-
+	if (source != md->mdhim_rank) {
+		free(im->key);
+		free(im->value);
+	} 
+	free(im);
+	
 	return MDHIM_SUCCESS;
 }
+
 
 /**
  * range_server_bput
@@ -570,61 +646,102 @@ int range_server_bput(struct mdhim_t *md, struct mdhim_bputm_t *bim, int source)
 	struct mdhim_store_opts_t opts;
 	void **value;
 	int32_t *value_len;
-	int exists = 0;
+	int *exists;
 	void *new_value;
 	int32_t new_value_len;
+	void **new_values;
+	int32_t *new_value_lens;
 	void *old_value;
 	int32_t old_value_len;
+	struct timeval start, end;
+	int num_put = 0;
 
+	gettimeofday(&start, NULL);
 	set_store_opts(md, &opts, 0);
+	exists = malloc(bim->num_records * sizeof(int));
+	new_values = malloc(bim->num_records * sizeof(void *));
+	new_value_lens = malloc(bim->num_records * sizeof(int));
+	value = malloc(sizeof(void *));
+	value_len = malloc(sizeof(int32_t));
+
 	//Iterate through the arrays and insert each record
 	for (i = 0; i < bim->num_records && i < MAX_BULK_OPS; i++) {	
-		value = malloc(sizeof(void *));
 		*value = NULL;
-		value_len = malloc(sizeof(int32_t));
 		*value_len = 0;
-		exists = 0;
-		//Check for the key's existence
+
+                //Check for the key's existence
 		md->mdhim_rs->mdhim_store->get(md->mdhim_rs->mdhim_store->db_handle, 
 					       bim->keys[i], bim->key_lens[i], value, 
 					       value_len, &opts);
 		//The key already exists
 		if (*value && *value_len) {
-			exists = 1;
+			exists[i] = 1;
+		} else {
+			exists[i] = 0;
 		}
 
 		//If the option to append was specified and there is old data, concat the old and new
-		if (exists && md->db_opts->db_append == MDHIM_DB_APPEND) {
+		if (exists[i] && md->db_opts->db_value_append == MDHIM_DB_APPEND) {
 			old_value = *value;
 			old_value_len = *value_len;
 			new_value_len = old_value_len + bim->value_lens[i];
 			new_value = malloc(new_value_len);
 			memcpy(new_value, old_value, old_value_len);
-			memcpy(new_value + old_value_len, bim->values[i], bim->value_lens[i]);
+			memcpy(new_value + old_value_len, bim->values[i], bim->value_lens[i]);		
+			if (exists[i] && source != md->mdhim_rank) {
+				free(bim->values[i]);
+			}
+
+			new_values[i] = new_value;
+			new_value_lens[i] = new_value_len;
 		} else {
-			new_value = bim->values[i];
-			new_value_len = bim->value_lens[i];
+			new_values[i] = bim->values[i];
+			new_value_lens[i] = bim->value_lens[i];
 		}
-
-		error = MDHIM_SUCCESS;
-		//Put the record in the database
-		if ((ret = 
-		     md->mdhim_rs->mdhim_store->put(md->mdhim_rs->mdhim_store->db_handle, 
-						bim->keys[i], bim->key_lens[i], new_value, 
-						new_value_len, &opts)) != MDHIM_SUCCESS) {
-			mlog(MDHIM_SERVER_CRIT, "Rank: %d - Error putting record", 
-			     md->mdhim_rank);
-			error = ret;
-		}
-
-		if (!exists && error == MDHIM_SUCCESS) {
-			update_all_stats(md, bim->keys[i], bim->key_lens[i]);
-		}
-
-		if (exists && md->db_opts->db_append == MDHIM_DB_APPEND) {
-			free(new_value);
+		
+		if (*value) {
+			free(*value);
 		}
 	}
+
+	//Put the record in the database
+	if ((ret = 
+	     md->mdhim_rs->mdhim_store->batch_put(md->mdhim_rs->mdhim_store->db_handle, 
+						  bim->keys, bim->key_lens, new_values, 
+						  new_value_lens, bim->num_records,
+						  &opts)) != MDHIM_SUCCESS) {
+		mlog(MDHIM_SERVER_CRIT, "Rank: %d - Error batch putting records", 
+		     md->mdhim_rank);
+		error = ret;
+	} else {
+		num_put = bim->num_records;
+	}
+
+	for (i = 0; i < bim->num_records && i < MAX_BULK_OPS; i++) {
+		//Update the stats if this key didn't exist before
+		if (!exists[i] && error == MDHIM_SUCCESS) {
+			update_all_stats(md, bim->keys[i], bim->key_lens[i]);
+		}
+	       
+		if (exists[i] && md->db_opts->db_value_append == MDHIM_DB_APPEND) {
+			//Release the value created for appending the new and old value
+			free(new_values[i]);
+		}		
+
+		//Release the bput keys/value if the message isn't coming from myself
+		if (source != md->mdhim_rank) {
+			free(bim->keys[i]);
+			free(bim->values[i]);
+		} 
+	}
+
+	free(exists);
+	free(new_values);
+	free(new_value_lens);
+	free(value);
+	free(value_len);
+	gettimeofday(&end, NULL);
+	add_timing(start, end, num_put, md, MDHIM_BULK_PUT);
 
 	//Create the response message
 	brm = malloc(sizeof(struct mdhim_rm_t));
@@ -635,8 +752,12 @@ int range_server_bput(struct mdhim_t *md, struct mdhim_bputm_t *bim, int source)
 	//Set the server's rank
 	brm->server_rank = md->mdhim_rank;
 
-	//Release the bputm message, but don't free the keys and values
-	mdhim_partial_release_msg(bim);
+	//Release the internals of the bput message
+	free(bim->keys);
+	free(bim->key_lens);
+	free(bim->values);
+	free(bim->value_lens);
+	free(bim);
 
 	//Send response
 	ret = send_locally_or_remote(md, source, brm);
@@ -678,6 +799,7 @@ int range_server_del(struct mdhim_t *md, struct mdhim_delm_t *dm, int source) {
 
 	//Send response
 	ret = send_locally_or_remote(md, source, rm);
+	free(dm);
 
 	return MDHIM_SUCCESS;
 }
@@ -723,6 +845,9 @@ int range_server_bdel(struct mdhim_t *md, struct mdhim_bdelm_t *bdm, int source)
 
 	//Send response
 	ret = send_locally_or_remote(md, source, brm);
+	free(bdm->keys);
+	free(bdm->key_lens);
+	free(bdm);
 
 	return MDHIM_SUCCESS;
 }
@@ -761,6 +886,7 @@ int range_server_commit(struct mdhim_t *md, struct mdhim_basem_t *im, int source
 	     md->mdhim_rank);
 	//Send response
 	ret = send_locally_or_remote(md, source, rm);
+	free(im);
 
 	return MDHIM_SUCCESS;
 }
@@ -783,6 +909,8 @@ int range_server_get(struct mdhim_t *md, struct mdhim_getm_t *gm, int source, in
 	struct mdhim_getrm_t *grm;
 	int ret;
 	struct mdhim_store_opts_t opts;
+	struct timeval start, end;
+	int num_retrieved = 0;
 
 	set_store_opts(md, &opts, 0);
 	//Initialize pointers and lengths
@@ -802,6 +930,7 @@ int range_server_get(struct mdhim_t *md, struct mdhim_getm_t *gm, int source, in
 		key_len = gm->key_len;
 	}
 
+	gettimeofday(&start, NULL);
 	//Get a record from the database
 	switch(op) {
 	// Gets the value for the given key
@@ -814,13 +943,14 @@ int range_server_get(struct mdhim_t *md, struct mdhim_getm_t *gm, int source, in
 			     md->mdhim_rank);
 			error = ret;
 		}
+	
 		break;
 	/* Gets the next key and value that is in order after the passed in key */
 	case MDHIM_GET_NEXT:	
 		if ((ret = 
 		     md->mdhim_rs->mdhim_store->get_next(md->mdhim_rs->mdhim_store->db_handle, 
 							 key, &key_len, value, 
-							 value_len, NULL, &opts)) != MDHIM_SUCCESS) {
+							 value_len, &opts)) != MDHIM_SUCCESS) {
 			mlog(MDHIM_SERVER_DBG, "Rank: %d - Couldn't get next record", 
 			     md->mdhim_rank);
 			error = ret;
@@ -832,7 +962,7 @@ int range_server_get(struct mdhim_t *md, struct mdhim_getm_t *gm, int source, in
 		if ((ret = 
 		     md->mdhim_rs->mdhim_store->get_prev(md->mdhim_rs->mdhim_store->db_handle, 
 							 key, &key_len, value, 
-							 value_len, NULL, &opts)) != MDHIM_SUCCESS) {
+							 value_len, &opts)) != MDHIM_SUCCESS) {
 			mlog(MDHIM_SERVER_DBG, "Rank: %d - Couldn't get previous record", 
 			     md->mdhim_rank);
 			error = ret;
@@ -844,7 +974,7 @@ int range_server_get(struct mdhim_t *md, struct mdhim_getm_t *gm, int source, in
 		if ((ret = 
 		     md->mdhim_rs->mdhim_store->get_next(md->mdhim_rs->mdhim_store->db_handle, 
 							 key, &key_len, value, 
-							 value_len, NULL,  &opts)) != MDHIM_SUCCESS) {
+							 value_len, &opts)) != MDHIM_SUCCESS) {
 			mlog(MDHIM_SERVER_DBG, "Rank: %d - Couldn't get next record", 
 			     md->mdhim_rank);
 			error = ret;
@@ -856,7 +986,7 @@ int range_server_get(struct mdhim_t *md, struct mdhim_getm_t *gm, int source, in
 		if ((ret = 
 		     md->mdhim_rs->mdhim_store->get_prev(md->mdhim_rs->mdhim_store->db_handle, 
 							 key, &key_len, value, 
-							 value_len, NULL, &opts)) != MDHIM_SUCCESS) {
+							 value_len, &opts)) != MDHIM_SUCCESS) {
 			mlog(MDHIM_SERVER_DBG, "Rank: %d - Couldn't get next record", 
 			     md->mdhim_rank);
 			error = ret;
@@ -867,6 +997,13 @@ int range_server_get(struct mdhim_t *md, struct mdhim_getm_t *gm, int source, in
 		     md->mdhim_rank, op);
 		break;
 	}
+
+	if (error == MDHIM_SUCCESS) {
+		num_retrieved = 1;
+	}
+
+	gettimeofday(&end, NULL);
+	add_timing(start, end, num_retrieved, md, MDHIM_GET);
 
 	//Create the response message
 	grm = malloc(sizeof(struct mdhim_getrm_t));
@@ -897,7 +1034,7 @@ int range_server_get(struct mdhim_t *md, struct mdhim_getm_t *gm, int source, in
 		gm->key = NULL;
 		gm->key_len = 0;
 	}
-
+	
 	grm->key_len = key_len;
 	grm->value = *value;
 	grm->value_len = *value_len;
@@ -906,6 +1043,7 @@ int range_server_get(struct mdhim_t *md, struct mdhim_getm_t *gm, int source, in
 	mlog(MDHIM_SERVER_DBG, "Rank: %d - About to send get response to: %d", 
 	     md->mdhim_rank, source);
 	ret = send_locally_or_remote(md, source, grm);
+	free(gm);
 	free(value_len);
 	free(value);
 	free(key);
@@ -930,6 +1068,8 @@ int range_server_bget(struct mdhim_t *md, struct mdhim_bgetm_t *bgm, int source)
 	struct mdhim_bgetrm_t *bgrm;
 	int error = 0;
 	struct mdhim_store_opts_t opts;
+	struct timeval start, end;
+	int num_retrieved = 0;
 
 	set_store_opts(md, &opts, 0);
 	values = malloc(sizeof(void *) * bgm->num_records);
@@ -947,8 +1087,13 @@ int range_server_bget(struct mdhim_t *md, struct mdhim_bgetm_t *bgm, int source)
 			value_lens[i] = 0;
 			values[i] = NULL;
 			continue;
-		}	
+		}
+
+		num_retrieved++;
 	}
+
+	gettimeofday(&end, NULL);
+	add_timing(start, end, num_retrieved, md, MDHIM_BULK_GET);
 
 	//Create the response message
 	bgrm = malloc(sizeof(struct mdhim_bgetrm_t));
@@ -968,6 +1113,9 @@ int range_server_bget(struct mdhim_t *md, struct mdhim_bgetm_t *bgm, int source)
 			bgrm->keys[i] = malloc(bgrm->key_lens[i]);
 			memcpy(bgrm->keys[i], bgm->keys[i], bgrm->key_lens[i]);
 		}
+
+		free(bgm->keys);
+		free(bgm->key_lens);
 	} else {
 		bgrm->keys = bgm->keys;
 		bgrm->key_lens = bgm->key_lens;
@@ -976,8 +1124,12 @@ int range_server_bget(struct mdhim_t *md, struct mdhim_bgetm_t *bgm, int source)
 	bgrm->values = values;
 	bgrm->value_lens = value_lens;
 	bgrm->num_records = bgm->num_records;
+
 	//Send response
 	ret = send_locally_or_remote(md, source, bgrm);
+
+	//Release the bget message
+	free(bgm);
 
 	return MDHIM_SUCCESS;
 }
@@ -996,21 +1148,22 @@ int range_server_bget_op(struct mdhim_t *md, struct mdhim_getm_t *gm, int source
 	int error = 0;
 	void **values;
 	void **keys;
+	void **get_key; //Used for passing the key to the db
+	int *get_key_len; //Used for passing the key len to the db
+	void **get_value;
+	int *get_value_len;
 	int32_t *key_lens;
 	int32_t *value_lens;
-	void *last_key;
-	int32_t last_key_len;
 	struct mdhim_bgetrm_t *bgrm;
 	int ret;
 	struct mdhim_store_opts_t opts;
 	int i;
-	void **iterator;
+	int num_records;
+	struct timeval start, end;
 
 	set_store_opts(md, &opts, 0);
 
 	//Initialize pointers and lengths
-	iterator = malloc(sizeof(void *));
-	*iterator = NULL;
 	values = malloc(sizeof(void *) * gm->num_records);
 	value_lens = malloc(sizeof(int32_t) * gm->num_records);
 	memset(value_lens, 0, sizeof(int32_t) * gm->num_records);
@@ -1018,21 +1171,31 @@ int range_server_bget_op(struct mdhim_t *md, struct mdhim_getm_t *gm, int source
 	memset(keys, 0, sizeof(void *) * gm->num_records);
 	key_lens = malloc(sizeof(int32_t) * gm->num_records);
 	memset(key_lens, 0, sizeof(int32_t) * gm->num_records);
-	last_key = NULL;
-	last_key_len = 0;
+	get_key = malloc(sizeof(void *));
+	*get_key = NULL;
+	get_key_len = malloc(sizeof(int32_t));
+	*get_key_len = 0;
+	get_value = malloc(sizeof(void *));
+	get_value_len = malloc(sizeof(int32_t));
+	num_records = 0;
 
+	gettimeofday(&start, NULL);
 	//Iterate through the arrays and get each record
 	for (i = 0; i < gm->num_records && i < MAX_BULK_OPS; i++) {
 		keys[i] = NULL;
 		key_lens[i] = 0;
 
-		//Set our local pointer to the key and length
+		//If we were passed in a key, copy it
 		if (!i && gm->key_len && gm->key) {
-			keys[i] = gm->key;
-			key_lens[i] = gm->key_len;			
-		} else {
-			keys[i] = last_key;
-			key_lens[i] = last_key_len;
+			*get_key = malloc(gm->key_len);
+			memcpy(*get_key, gm->key, gm->key_len);
+			*get_key_len = gm->key_len;
+		//If we were not passed a key and this is a next/prev, then return an error
+		} else if (!i && (!gm->key_len || !gm->key)
+			   && (op ==  MDHIM_GET_NEXT || 
+			       op == MDHIM_GET_PREV)) {
+			error = MDHIM_ERROR;
+			goto respond;
 		}
 
 		switch(op) {
@@ -1043,15 +1206,26 @@ int range_server_bget_op(struct mdhim_t *md, struct mdhim_getm_t *gm, int source
 				key_lens[i] = sizeof(int32_t);
 			}
 		case MDHIM_GET_NEXT:	
-			if ((ret = 
-			     md->mdhim_rs->mdhim_store->get_next(md->mdhim_rs->mdhim_store->db_handle, 
-								 (void **) (keys + i), (int32_t *) (key_lens + i), 
-								 (void **) (values + i), 
-								 (int32_t *) (value_lens + i), iterator,
-								 &opts)) 
+			if (i && (ret = 
+				  md->mdhim_rs->mdhim_store->get_next(md->mdhim_rs->mdhim_store->db_handle, 
+								      get_key, get_key_len, 
+								      get_value, 
+								      get_value_len,
+								      &opts)) 
 			    != MDHIM_SUCCESS) {
 				mlog(MDHIM_SERVER_DBG, "Rank: %d - Couldn't get next record", 
 				     md->mdhim_rank);
+				error = ret;
+				key_lens[i] = 0;
+				value_lens[i] = 0;
+				goto respond;
+			} else if (!i && (ret = 
+					  md->mdhim_rs->mdhim_store->get(md->mdhim_rs->mdhim_store->db_handle, 
+									 *get_key, *get_key_len, 
+									 get_value, 
+									 get_value_len,
+									 &opts))
+				   != MDHIM_SUCCESS) {
 				error = ret;
 				key_lens[i] = 0;
 				value_lens[i] = 0;
@@ -1064,15 +1238,26 @@ int range_server_bget_op(struct mdhim_t *md, struct mdhim_getm_t *gm, int source
 				key_lens[i] = sizeof(int32_t);
 			}
 		case MDHIM_GET_PREV:
-			if ((ret = 
+			if (i && (ret = 
 			     md->mdhim_rs->mdhim_store->get_prev(md->mdhim_rs->mdhim_store->db_handle, 
-								 (void **) (keys + i), (int32_t *) (key_lens + i), 
-								 (void **) (values + i), 
-								 (int32_t *) (value_lens + i), iterator,
+								 get_key, get_key_len, 
+								 get_value, 
+								 get_value_len,
 								 &opts)) 
 			    != MDHIM_SUCCESS) {
-				mlog(MDHIM_SERVER_DBG, "Rank: %d - Couldn't get next record", 
+				mlog(MDHIM_SERVER_DBG, "Rank: %d - Couldn't get prev record", 
 				     md->mdhim_rank);
+				error = ret;
+				key_lens[i] = 0;
+				value_lens[i] = 0;
+				goto respond;
+			} else if (!i && (ret = 
+					  md->mdhim_rs->mdhim_store->get(md->mdhim_rs->mdhim_store->db_handle, 
+									 *get_key, *get_key_len, 
+									 get_value, 
+									 get_value_len,
+									 &opts))
+				   != MDHIM_SUCCESS) {
 				error = ret;
 				key_lens[i] = 0;
 				value_lens[i] = 0;
@@ -1085,14 +1270,19 @@ int range_server_bget_op(struct mdhim_t *md, struct mdhim_getm_t *gm, int source
 			goto respond;
 			break;
 		}
-	
-		last_key = keys[i];
-		last_key_len = key_lens[i];
+
+		keys[i] = *get_key;
+		key_lens[i] = *get_key_len;
+	        values[i] = *get_value;
+		value_lens[i] = *get_value_len;
+		num_records++;
 	}
 
 respond:
-	md->mdhim_rs->mdhim_store->iter_free(iterator);
-	free(iterator);
+
+	gettimeofday(&end, NULL);
+	add_timing(start, end, num_records, md, MDHIM_BULK_GET);
+
        //Create the response message
 	bgrm = malloc(sizeof(struct mdhim_bgetrm_t));
 	//Set the type
@@ -1104,16 +1294,22 @@ respond:
 	bgrm->keys = keys;
 	bgrm->key_lens = key_lens;
 	//Set the key and value
+	bgrm->values = values;
+	bgrm->value_lens = value_lens;
+	bgrm->num_records = num_records;
+	//Send response
+	ret = send_locally_or_remote(md, source, bgrm);
+
+	//Free the incoming message
 	if (source != md->mdhim_rank) {
 		//If this message is not coming from myself, free the key in the gm message
 		free(gm->key);
-	}
-
-	bgrm->values = values;
-	bgrm->value_lens = value_lens;
-	bgrm->num_records = gm->num_records;
-	//Send response
-	ret = send_locally_or_remote(md, source, bgrm);
+	} 
+	free(gm);
+	free(get_key);
+	free(get_key_len);
+	free(get_value);
+	free(get_value_len);
 
 	return MDHIM_SUCCESS;
 }
@@ -1123,6 +1319,8 @@ respond:
  * Function for the thread that listens for new messages
  */
 void *listener_thread(void *data) {	
+	//Mlog statements could cause a deadlock on range_server_stop due to canceling of threads
+
 	struct mdhim_t *md = (struct mdhim_t *) data;
 	void *message;
 	int source; //The source of the message
@@ -1136,31 +1334,29 @@ void *listener_thread(void *data) {
 
 	while (1) {		
 		//Receive messages sent to this server
-		mlog(MPI_DBG, "Rank: %d - Received message from rank: %d of type: %d", 
-		     md->mdhim_rank, source, mtype);
-
 		gettimeofday(&start, NULL);
 		ret = receive_rangesrv_work(md, &source, &message);
-		if (ret < MDHIM_SUCCESS) {
-			mlog(MDHIM_SERVER_CRIT, "Rank: %d - Error receiving message in listener", 
-			     md->mdhim_rank);
+		if (ret < MDHIM_SUCCESS) {		
 			continue;
 		}
 
-		gettimeofday(&end, NULL);	
-		mlog(MDHIM_SERVER_DBG, "Rank: %d - Took: %d seconds to receive a range server message", 
-		     md->mdhim_rank, (int) (end.tv_sec - start.tv_sec));
+//		printf("Rank: %d - Received message from rank: %d of type: %d", 
+//		     md->mdhim_rank, source, mtype);
+
+
+		gettimeofday(&end, NULL);
+	
+//		printf("Rank: %d - Took: %d seconds to receive a range server message", 
+//		     md->mdhim_rank, (int) (end.tv_sec - start.tv_sec));
 		//We received a close message - so quit
 		if (ret == MDHIM_CLOSE) {
-			mlog(MDHIM_SERVER_DBG, "Rank: %d - Received close message", 
-			     md->mdhim_rank);
 			break;
 		}
 
                 //Get the message type
 		mtype = ((struct mdhim_basem_t *) message)->mtype;
-		mlog(MPI_DBG, "Rank: %d - Received message from rank: %d of type: %d", 
-		     md->mdhim_rank, source, mtype);
+//		printf("Rank: %d - Received message from rank: %d of type: %d", 
+//		     md->mdhim_rank, source, mtype);
 		
                 //Create a new work item
 		item = malloc(sizeof(work_item));
@@ -1182,6 +1378,8 @@ void *listener_thread(void *data) {
  * Function for the thread that processes work in work queue
  */
 void *worker_thread(void *data) {
+	//Mlog statements could cause a deadlock on range_server_stop due to canceling of threads
+
 	struct mdhim_t *md = (struct mdhim_t *) data;
 	work_item *item;
 	int mtype;
@@ -1204,8 +1402,10 @@ void *worker_thread(void *data) {
 	       
 		pthread_cleanup_pop(0);
 		if (!item) {
-			mlog(MDHIM_SERVER_DBG, "Rank: %d - Got empty work item from queue", 
-			     md->mdhim_rank);
+
+//			printf("Rank: %d - Got empty work item from queue", 
+//			     md->mdhim_rank);
+
 			pthread_mutex_unlock(md->mdhim_rs->work_queue_mutex);
 			continue;
 		}
@@ -1215,8 +1415,10 @@ void *worker_thread(void *data) {
 			//Call the appropriate function depending on the message type			
 			//Get the message type
 			mtype = ((struct mdhim_basem_t *) item->message)->mtype;
-			mlog(MDHIM_SERVER_DBG, "Rank: %d - Got work item from queue with type: %d" 
-			     " from: %d", md->mdhim_rank, mtype, item->source);
+
+//			printf("Rank: %d - Got work item from queue with type: %d" 
+//			     " from: %d", md->mdhim_rank, mtype, item->source);
+
 			switch(mtype) {
 			case MDHIM_PUT:
 				//Pack the put message and pass to range_server_put
@@ -1260,22 +1462,28 @@ void *worker_thread(void *data) {
 			case MDHIM_COMMIT:
 				range_server_commit(md, item->message, item->source);
 				break;
+			case MDHIM_CLOSE:
+				goto done;
+				break;
 			default:
-				mlog(MDHIM_SERVER_CRIT, "Rank: %d - Got unknown work type: %d" 
-				     " from: %d", md->mdhim_rank, mtype, item->source);
+				printf("Rank: %d - Got unknown work type: %d" 
+				       " from: %d", md->mdhim_rank, mtype, item->source);
 				break;
 			}
-				
+			
 			free(item);
 			gettimeofday(&end, NULL);
-			mlog(MDHIM_SERVER_DBG, "Rank: %d - Took: %d seconds to process range server work", 
-			     md->mdhim_rank, (int) (end.tv_sec - start.tv_sec));
+			
+//			printf("Rank: %d - Took: %d seconds to process range server work", 
+//			     md->mdhim_rank, (int) (end.tv_sec - start.tv_sec));
+			
 			item = get_work(md);
 		}		
-
+		
 		pthread_mutex_unlock(md->mdhim_rs->work_queue_mutex);
 	}
 	
+done:
 	return NULL;
 }
 
@@ -1292,7 +1500,7 @@ int range_server_init(struct mdhim_t *md) {
 	int rangesrv_num;
 	int flags = MDHIM_CREATE;
 	struct mdhim_store_opts_t opts;
-	int i;
+	int path_num = 0;
 
 	//There was an error figuring out if I'm a range server
 	if ((rangesrv_num = is_range_server(md, md->mdhim_rank)) == MDHIM_ERROR) {
@@ -1318,7 +1526,16 @@ int range_server_init(struct mdhim_t *md) {
 	md->mdhim_rs->info.rangesrv_num = rangesrv_num;
 
 	//Database filename is dependent on ranges.  This needs to be configurable and take a prefix
-        sprintf(filename, "%s%s%d", md->db_opts->db_path, md->db_opts->db_name, md->mdhim_rank);
+	if (!md->db_opts->db_paths) {
+		sprintf(filename, "%s%s%d", md->db_opts->db_path, md->db_opts->db_name, md->mdhim_rank);
+	} else {
+		path_num = rangesrv_num/((double) md->num_rangesrvs/(double) md->db_opts->num_paths);
+	        path_num = path_num >= md->db_opts->num_paths ? md->db_opts->num_paths - 1 : path_num;
+		sprintf(filename, "%s%s%d", md->db_opts->db_paths[path_num], 
+			md->db_opts->db_name, md->mdhim_rank);
+
+	}
+
         
 	//Initialize data store
 	md->mdhim_rs->mdhim_store = mdhim_db_init(md->db_opts->db_type);
@@ -1361,6 +1578,11 @@ int range_server_init(struct mdhim_t *md) {
 		     md->mdhim_rank);
 	}
 
+	//Initialize variables for printing out timings
+	md->mdhim_rs->put_time = 0;
+	md->mdhim_rs->get_time = 0;
+	md->mdhim_rs->num_put = 0;
+	md->mdhim_rs->num_get = 0;
 	//Initialize work queue
 	md->mdhim_rs->work_queue = malloc(sizeof(work_queue));
 	md->mdhim_rs->work_queue->head = NULL;
@@ -1403,16 +1625,13 @@ int range_server_init(struct mdhim_t *md) {
 		return MDHIM_ERROR;
 	}
 
-	md->mdhim_rs->listeners = malloc(sizeof(pthread_t) * LISTENER_THREADS);
-	for (i = 0; i < LISTENER_THREADS; i++) {
-		//Initialize listener threads
-		if ((ret = pthread_create(&md->mdhim_rs->listeners[i], NULL, 
-					  listener_thread, (void *) md)) != 0) {
-			mlog(MDHIM_SERVER_CRIT, "MDHIM Rank: %d - " 
-			     "Error while initializing listener thread", 
-			     md->mdhim_rank);
-			return MDHIM_ERROR;
-		}
+	//Initialize listener threads
+	if ((ret = pthread_create(&md->mdhim_rs->listener, NULL, 
+				  listener_thread, (void *) md)) != 0) {
+	  mlog(MDHIM_SERVER_CRIT, "MDHIM Rank: %d - " 
+	       "Error while initializing listener thread", 
+	       md->mdhim_rank);
+	  return MDHIM_ERROR;
 	}
 
 	return MDHIM_SUCCESS;
