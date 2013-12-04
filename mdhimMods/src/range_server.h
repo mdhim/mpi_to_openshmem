@@ -5,8 +5,6 @@
 #include "data_store.h"
 #include "messages.h"
 
-#define LISTENER_THREADS 1
-
 struct mdhim_t;
 
 typedef struct work_item work_item;
@@ -47,9 +45,15 @@ typedef struct mdhim_rs_t {
 	work_queue *work_queue;
 	pthread_mutex_t *work_queue_mutex;
 	pthread_cond_t *work_ready_cv;
-	pthread_t *listeners;
+	pthread_t listener;
 	pthread_t worker;
 	rangesrv_info info;
+	//Records seconds spent on putting records
+	long double put_time; 
+	//Records seconds spend on getting records
+	long double get_time;
+	long num_put;
+	long num_get;
 } mdhim_rs_t;
 
 int range_server_add_work(struct mdhim_t *md, work_item *item);
