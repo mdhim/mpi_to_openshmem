@@ -6,14 +6,18 @@
 
 #include <stdlib.h>
 #include "data_store.h"
-#include "ds_unqlite.h"
+#ifdef      LEVELDB_SUPPORT
 #include "ds_leveldb.h"
+#endif
+#ifdef      ROCKSDB_SUPPORT
+#include "ds_leveldb.h"
+#endif
 
 /**
  * mdhim_db_init
  * Initializes mdhim_store_t structure based on type
  *
- * @param type           in   Database store type to use (i.e., UNQLITE, LEVELDB, etc)
+ * @param type           in   Database store type to use (i.e., LEVELDB, etc)
  * @return mdhim_store_t      The mdhim storage abstraction struct
  */
 struct mdhim_store_t *mdhim_db_init(int type) {
@@ -39,29 +43,39 @@ struct mdhim_store_t *mdhim_db_init(int type) {
 	store->db_ptr14 = NULL;
 	store->mdhim_store_stats = NULL;
 	switch(type) {
-	case UNQLITE:
-		store->open = mdhim_unqlite_open;
-		store->put = mdhim_unqlite_put;
-		store->get = mdhim_unqlite_get;
-		store->get_next = mdhim_unqlite_get_next;
-		store->get_prev = mdhim_unqlite_get_prev;
-		store->del = mdhim_unqlite_del;
-		store->iter_free = mdhim_unqlite_iter_free;
-		store->commit = mdhim_unqlite_commit;
-		store->close = mdhim_unqlite_close;
-		break;
+
+#ifdef      LEVELDB_SUPPORT
 	case LEVELDB:
 		store->open = mdhim_leveldb_open;
 		store->put = mdhim_leveldb_put;
+		store->batch_put = mdhim_leveldb_batch_put;
 		store->get = mdhim_leveldb_get;
 		store->get_next = mdhim_leveldb_get_next;
 		store->get_prev = mdhim_leveldb_get_prev;
 		store->del = mdhim_leveldb_del;
-		store->iter_free = mdhim_leveldb_iter_free;
 		store->commit = mdhim_leveldb_commit;
 		store->close = mdhim_leveldb_close;
 		break;
+
+#endif
+
+#ifdef      ROCKSDB_SUPPORT
+	case ROCKSDB:
+		store->open = mdhim_leveldb_open;
+		store->put = mdhim_leveldb_put;
+		store->batch_put = mdhim_leveldb_batch_put;
+		store->get = mdhim_leveldb_get;
+		store->get_next = mdhim_leveldb_get_next;
+		store->get_prev = mdhim_leveldb_get_prev;
+		store->del = mdhim_leveldb_del;
+		store->commit = mdhim_leveldb_commit;
+		store->close = mdhim_leveldb_close;
+		break;
+#endif
+
 	default:
+		free(store);
+		store = NULL;
 		break;
 	}
 	
