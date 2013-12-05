@@ -1,27 +1,28 @@
-*                                                                                                                             
-*  isendiRcv.c                                                                                                                
-*  mpiToOpenshmem                                                                                                             
-*                                                                                                                             
-*  Created by gingery on 10/28/13.                                                                                            
-*  Copyright 2013 LANL. All rights reserved.                                                                                  
-*                                                                                                                             
-* Tests single int MPI_ISend/IRecvi                                                                                           
-*/
+/*
+ *  sendiRcvi.c
+ *  mpiToOpenshmem
+ *
+ *  Created by gingery on 10/28/13.
+ *  Copyright 2013 LANL. All rights reserved.
+ *
+ * Tests single int MPI_Irend/Irecvi
+ */
 #include <stdio.h>
 #include <stdlib.h>
 #include <shmem.h>
 
 #include "mpi_to_openshmem.h"
+#define BUF_SIZE 10
 
 int main(int argc, char *argv[])
 {
-	int provided, ret, size, rank;
+	int i, provided, ret, size, rank;
 	int nextpe;
-	int src;
-	int *dest;
+	long src[BUF_SIZE];
+	long *dest;
 	
 	MPI_Status   status[2];
-	MPI_Requests req[2];
+	MPI_Request  req[2];
 	
 	ret = MPI_Init_thread(&argc, &argv,  MPI_THREAD_MULTIPLE, &provided);
 	if (ret != MPI_SUCCESS) {
@@ -34,35 +35,40 @@ int main(int argc, char *argv[])
 	
 	nextpe = (rank + 1) % size;
 	
-	src = rank;
+	//src = rank;
 	
-	dest = (int *) shmalloc (sizeof (*dest));
+	dest = (long *) shmalloc (sizeof (*dest) * BUF_SIZE);
 	if (dest == NULL){
 		printf("Couldn't shmalloc.\n");
 	}
 	
-	*dest = 99;
-	shmem_barrier_all ();
+	for(i=0;i<BUF_SIZE;i++){
+		dest[i] = 99;
+		src[i] = nextpe + i;
+	}
+	//shmem_barrier_all ();
 	
-	//shmem_int_put (dest, &src, 1, nextpe);                                                                                     
-	MPI_Isend(&src, 1, MPI_INT, nextpe, 123, MPI_COMM_WORLD, &req[0]);
-	// shmem_int_get (dest, &src, 1, nextpe);                                                                                    
-	MPI_Irecv(dest, 1, MPI_INT, nextpe, 123, MPI_COMM_WORLD, &req[1]);
+	//shmem_int_put (dest, &src, 1, nextpe);
+	MPI_Isend(&src, BUF_SIZE, MPI_LONG, nextpe, 123, MPI_COMM_WORLD, &req[0]);
+	//shmem_int_get (dest, &src, 1, nextpe);
+	MPI_Irecv(dest, BUF_SIZE, MPI_LONG, nextpe, 123, MPI_COMM_WORLD, &req[1]);
 	
-	shmem_barrier_all ();
+	//shmem_barrier_all ();
 	
-	printf ("%4d: got %4d, %4d: ", rank, *dest,src);
-	if (*dest == rank)
+	for (i=0;i<BUF_SIZE;i++){
+		printf ("%4d: src[%d]: %4ld, dest[]: %ld\n", rank, i, src[i], dest[i]);
+	}
+	if (dest[0] == nextpe)
     {
 		printf ("CORRECT");
     }
 	else
     {
-		printf ("WRONG, expected %d", rank);
+		printf ("WRONG, expected %d", nextpe);
     }
 	printf ("\n");
 	
-	shmem_barrier_all ();
+	//shmem_barrier_all ();
 	shfree (dest);
 	return 0;
 	
