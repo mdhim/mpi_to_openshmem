@@ -583,7 +583,7 @@ int MPI_Comm_rank (MPI_Comm comm, int *rank){
 	
 #ifdef DEBUG
 	int my_pe = shmem_my_pe();
-	printf("MPI_Comm_rank, my_pe: %-8d rank: %d\n",  my_pe, *rank);
+	mlog(MPI_DBG, "MPI_Comm_rank, my_pe: %-8d rank: %d\n",  my_pe, *rank);
 #endif	
 	return MPI_SUCCESS;
 }
@@ -617,7 +617,7 @@ int MPI_Comm_size(MPI_Comm comm, int *size ){
 	
 #ifdef DEBUG
 	int my_pe = shmem_my_pe();
-	printf("MPI_Comm_size, my_pe: %-8d size: %d\n", my_pe, *size);
+	mlog(MPI_DBG, "MPI_Comm_size, my_pe: %-8d size: %d\n", my_pe, *size);
 #endif	
 
 	return MPI_SUCCESS;
@@ -1183,6 +1183,7 @@ int MPI_Irecv (void *buf, int count, MPI_Datatype datatype, int source, int tag,
 			break;
 		case MPI_LONG:
 		case MPI_UNSIGNED_LONG:
+			printf("shmem_long_get: count %d, source: %d\n", count, source);
 			shmem_long_get(buf, recv_buf, count, source);
 			break;
 		case MPI_FLOAT:
@@ -1304,7 +1305,7 @@ int MPI_Isend(void *buf, int count, MPI_Datatype datatype, int dest, int tag, MP
 	(*request).requestType = SEND_TYPE;
 	(*request).rank		   = dest;
 	(*request).dataType	   = datatype;
-	
+
 	//printf("MPI_Isend: PE: %d to PE: %d, sent: %d\n", my_pe, (*request).rank, ( (int *)(buf))[0] );
 	return ret;
 }
@@ -1503,7 +1504,7 @@ int MPI_Finalize(void){
  */
 int MPI_Test (MPI_Request *request, int *flag, MPI_Status *status){
 	int value = 0;
-	
+
 	// Asssume transfer not there:                                                                   
 	*flag = 0;
 	
