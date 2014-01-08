@@ -20,6 +20,9 @@
 #define INT_32			4	// number of bytes for a 32 bit integer
 #define INT_64			8	// number of bytes for a 64 bit integer
 
+#define	FALSE			0
+#define TRUE			1
+
 #define SEND_TYPE		0
 #define RECEIVE_TYPE	1
 
@@ -38,76 +41,10 @@ long pSync[_SHMEM_BCAST_SYNC_SIZE];
 #define MPI_ERR_SIZE         5      // Invalid size.
 #define MPI_ERR_NO_SPACE     6      // Memory exhausted.
 #define MPI_ERR_COMM         7      // Invalid communicator.
-/*
- MPI_SUCCESS              0      Successful return code.
- MPI_ERR_BUFFER           1      Invalid buffer pointer.
- MPI_ERR_COUNT            2      Invalid count argument.
- MPI_ERR_TYPE             3      Invalid datatype argument.
- MPI_ERR_TAG              4      Invalid tag argument.
- MPI_ERR_COMM             5      Invalid communicator.
- MPI_ERR_RANK             6      Invalid rank.
- MPI_ERR_REQUEST          7      Invalid MPI_Request handle.
- MPI_ERR_ROOT             7      Invalid root.
- MPI_ERR_GROUP            8      Null group passed to function.
- MPI_ERR_OP               9      Invalid operation.
- MPI_ERR_TOPOLOGY        10      Invalid topology.
- MPI_ERR_DIMS            11      Illegal dimension argument.
- MPI_ERR_ARG             12      Invalid argument.
- MPI_ERR_UNKNOWN         13      Unknown error.
- MPI_ERR_TRUNCATE        14      Message truncated on receive.
- MPI_ERR_OTHER           15      Other error; use Error_string.
- MPI_ERR_INTERN          16      Internal error code.
- MPI_ERR_IN_STATUS       17      Look in status for error value.
- MPI_ERR_PENDING         18      Pending request.
- MPI_ERR_ACCESS          19      Permission denied.
- MPI_ERR_AMODE           20      Unsupported amode passed to open.
- 
- MPI_ERR_ASSERT          21      Invalid assert.
- MPI_ERR_BAD_FILE        22      Invalid file name (for example,
- path name too long).
- MPI_ERR_BASE            23      Invalid base.
- MPI_ERR_CONVERSION      24      An error occurred in a user-supplied
- data-conversion function.
- MPI_ERR_DISP            25      Invalid displacement.
- MPI_ERR_DUP_DATAREP     26      Conversion functions could not be registered because a data
- representation identifier that was
- already defined was passed to
- MPI_REGISTER_DATAREP.
- MPI_ERR_FILE_EXISTS     27      File exists.
- MPI_ERR_FILE_IN_USE     28      File operation could not be
- completed, as the file is currently
- open by some process.
- MPI_ERR_FILE            29
- MPI_ERR_INFO_KEY        30      Illegal info key.
- MPI_ERR_INFO_NOKEY      31      No such key.
- MPI_ERR_INFO_VALUE      32      Illegal info value.
- MPI_ERR_INFO            33      Invalid info object.
- MPI_ERR_IO              34      I/O error.
- MPI_ERR_KEYVAL          35      Illegal key value.
- MPI_ERR_LOCKTYPE        36      Invalid locktype.
- MPI_ERR_NAME            37      Name not found.
- MPI_ERR_NOT_SAME        39
- MPI_ERR_NO_SUCH_FILE    41      File (or directory) does not exist.
- MPI_ERR_PORT            42      Invalid port.
- MPI_ERR_QUOTA           43      Quota exceeded.
- MPI_ERR_READ_ONLY       44      Read-only file system.
- MPI_ERR_RMA_CONFLICT    45      Conflicting accesses to window.
- 
- MPI_ERR_RMA_SYNC        46      Erroneous RMA synchronization.
- MPI_ERR_SERVICE         47      Invalid publish/unpublish.
- MPI_ERR_SPAWN           49      Error spawning.
- MPI_ERR_UNSUPPORTED_DATAREP
- 50      Unsupported datarep passed to
- MPI_File_set_view.
- MPI_ERR_UNSUPPORTED_OPERATION
- 51      Unsupported operation, such as
- seeking on a file that supports
- only sequential access.
- MPI_ERR_WIN             52      Invalid window.
- MPI_ERR_LASTCODE        53      Last error code.
- MPI_ERR_SYSRESOURCE     -2      Out of resources
- */
+#define MPI_ERR_GROUP        8      // Null group passed to function.
+
 typedef int MPI_Datatype;
+
 #define MPI_CHAR           ((MPI_Datatype)1)
 #define MPI_UNSIGNED_CHAR  ((MPI_Datatype)2)
 #define MPI_BYTE           ((MPI_Datatype)3)
@@ -121,10 +58,15 @@ typedef int MPI_Datatype;
 #define MPI_DOUBLE         ((MPI_Datatype)11)
 #define MPI_LONG_DOUBLE    ((MPI_Datatype)12)
 #define MPI_LONG_LONG_INT  ((MPI_Datatype)13)
+
 /* MPI_LONG_LONG is in the complete ref 2nd edition, though not in the 
  standard.  Rather, MPI_LONG_LONG_INT is on page 40 in the HPCA version */
 #define MPI_LONG_LONG      ((MPI_Datatype)13)
 #define MPI_PACKED		   ((MPI_Datatype)14)
+
+// Definitions for pftool
+#define MPI_ANY_TAG		     (-1)
+#define MPI_ANY_SOURCE	     (-2)
 
 /* For supported thread levels */
 #define MPI_THREAD_SINGLE		0
@@ -166,9 +108,9 @@ typedef struct MPID_Group {
 } MPID_Group;
 
 typedef struct MPID_Comm {
-    int				rank;			/* Value of MPI_Comm_rank */
-    int				size;			/* Value of MPI_Comm_size for local group */
-    MPID_Group		*localGroupPtr;    /* Groups in communicator. */
+    int				rank;		 /* Value of MPI_Comm_rank */
+    int				size;		 /* Value of MPI_Comm_size for local group */
+    MPID_Group		*groupPtr;   /* Groups in communicator. */
 	void			*bufferPtr;
 } MPID_Comm;
 
@@ -185,6 +127,28 @@ typedef MPID_Request    MPI_Request;
 typedef MPID_Comm		*MPI_Comm;
 MPI_Comm MPI_COMM_WORLD;			/* Communicator handles are pointers to structures...*/
 
+/* For MPI_Init_thread and multi-threaded support.
+ * OpenShmem does not support multithreads.
+ */
+int isMultiThreads;
+pthread_mutex_t	lockAbort;
+pthread_mutex_t	lockBarrier;
+pthread_mutex_t	lockBcast;
+pthread_mutex_t	lockCommCreate;
+pthread_mutex_t	lockCommDup;
+pthread_mutex_t	lockCommFree;
+pthread_mutex_t	lockAllGather;
+pthread_mutex_t	lockGather;
+pthread_mutex_t	lockGatherV;
+pthread_mutex_t	lockGroupIncl;
+pthread_mutex_t	lockRecv;
+pthread_mutex_t	lockSend;
+pthread_mutex_t	lockIRecv;
+pthread_mutex_t	lockISend;
+pthread_mutex_t	lockUnpack;
+pthread_mutex_t	lockPack;
+pthread_mutex_t	lockTest;
+pthread_mutex_t	lockIprobe;
 
 /* Define all of the subroutines */
 //struct mpi_to_openshmem_t * ( int mpiType, int required, int *provided, int debugLevel ); 
@@ -197,6 +161,7 @@ int MPI_Bcast(void *buffer, int count, MPI_Datatype datatype, int root, MPI_Comm
 
 int MPI_Comm_create(MPI_Comm comm, MPI_Group group, MPI_Comm *newcomm);
 int MPI_Comm_dup(MPI_Comm comm, MPI_Comm *newcomm);
+int MPI_Comm_free(MPI_Comm comm);
 int MPI_Comm_group(MPI_Comm comm,	MPI_Group *group);
 int MPI_Comm_rank(MPI_Comm comm, int *rank);
 int MPI_Comm_size(MPI_Comm comm, int *size);
@@ -212,4 +177,8 @@ int MPI_Unpack(void *inbuf, int insize, int *position, void *outbuf, int outcoun
 int MPI_Pack(void *inbuf, int incount, MPI_Datatype datatype, void *outbuf, int outsize, int *position,  MPI_Comm comm);
 int MPI_Finalize(void);
 int MPI_Test(MPI_Request *request, int *flag, MPI_Status *status);
+
+// Routine for pftool - this really doesn't work the correct MPI way.
+int MPI_Iprobe(int source, int tag, MPI_Comm comm, int *flag, MPI_Status *status);
+
 #endif
