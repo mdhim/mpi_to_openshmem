@@ -13,12 +13,41 @@ Settings for compiling and running mpi_to_openshmem
         GASNet-1.20.2            (http://gasnet.cs.berkeley.edu/)
         openshmem-release-1.0e   (https://upc-bugs.lbl.gov/~phargrov/sc12/PGAS-SC12/content/openshmem/openshmem/bongo.cs.uh.edu/site/About.html)
 
-   3. Configuration settings for levelDB
+   3. Patch for openshmem-release-1.0e
+   	Apply this via patch to the source code to fix a problem with start_pes:
 
-   4. Configuration settings for GasNet
+	--- a/src/updown/updown.c
+	+++ b/src/updown/updown.c
+	@@ -207,6 +207,11 @@ check_pe_status (void)
+	 void
+	 start_pes (int npes)
+	 {
+	+  if ( ! check_pe_status ())
+	+    {
+	+      return;
+	+    }
+	+
+	   /* set up communications layer as early as possible */
+	   __shmem_comms_init ();
+ 
+	@@ -214,11 +219,6 @@ start_pes (int npes)
+	   __shmem_elapsed_clock_init ();
+	   __shmem_tracers_init ();
+ 
+	-  if ( ! check_pe_status ())
+	-    {
+	-      return;
+	-    }
+	-
+	   /* find out what this executable image is */
+	   __shmem_executable_init ();
+
+   4. Configuration settings for levelDB
+
+   5. Configuration settings for GasNet
        ./configure --prefix=/users/moniker/GASNet-1.20.2_standard
 
-   5. Configuration settings for Openshmem
+   6. Configuration settings for Openshmem
         ./configure --prefix=/users/moniker/openshmem-1.0d_IBV 
                     --with-gasnet-conduit=ibv
                     --with-gasnet-root=/users/moniker/GASNet-1.20.2_standard
