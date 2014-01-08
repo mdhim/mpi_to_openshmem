@@ -40,6 +40,9 @@ int MPI_Init( int *argc, char ***argv ){
 	int npes =  _num_pes ();
 	int my_pe = shmem_my_pe();
 	
+	// It is not threaded:
+	isMultiThreads = FALSE;
+	
 	sharedBuffer = (void *)shmalloc(sizeof(char) * MAX_BUFFER_SIZE);
 	if (sharedBuffer == NULL ){
 		mlog(MPI_ERR, "MPI_Init:: PE: %d, could not shmalloc space for symmetric memory.\n", my_pe);
@@ -127,7 +130,10 @@ int MPI_Init_thread( int *argc, char ***argv, int required, int *provided ){
 	
 	int npes =  _num_pes ();
 	int my_pe = shmem_my_pe();
-	
+
+	// It is threaded:
+	isMultiThreads = TRUE;
+
 	sharedBuffer = (void *)shmalloc(sizeof(char) * MAX_BUFFER_SIZE);
 	if (sharedBuffer == NULL ){
 		mlog(MPI_ERR, "MPI_Init_thread:: PE: %d, could not shmalloc space for symmetric memory.\n", my_pe);
@@ -227,6 +233,7 @@ int MPI_Abort (MPI_Comm comm, int errorcode){
 	
 	// Clear all of the outstanding puts, and that's pretty much all  we can do..
 	shmem_barrier_all();
+
 	errorcode = MPI_SUCCESS;
 	
 	return ret;
@@ -250,6 +257,7 @@ int MPI_Barrier (MPI_Comm comm){
 	}
 	
 	shmem_barrier_all ();  // shmem_barrier (int PE_start, int logPE_stride, int PE_size, long *pSync)
+	
 	return ret;
 }
 
@@ -282,22 +290,35 @@ int MPI_Bcast ( void *source, int count, MPI_Datatype dataType, int root, MPI_Co
 		return MPI_ERR_COMM;
 	}
 	
+	if (isMultiThreads){
+		pthread_mutex_lock(&lockBcast);
+	}
+		
 	npes = _num_pes();
 	my_pe = shmem_my_pe();
+
+	//printf("MPI_Bcast, Rank: %d count: %d, DataType: %d, Root: %d\n", my_pe, count, dataType, root);
+
+	if ( !shmem_addr_accessible( source, my_pe) ) {
+		//printf("MPI_Bcast::Buffer is not in a symmetric segment, pe: %d\n", my_pe);
+		mlog(MPI_ERR, "Error: Buffer is not in a symmetric segment, %d\n", my_pe);
+		return MPI_ERR_BUFFER;
+	}
 	
 	target = (void *)((MPID_Comm)*comm).bufferPtr;
 	if (target != NULL){
         mlog(MPI_DBG,"MPI_Bcast:: mpiComm[comm].bufferPtr: %x\n", target);
+        //printf("MPI_Bcast:: mpiComm[comm].bufferPtr: %x\n", target);
 	}else{
 		mlog(MPI_DBG,"MPI_Bcast:: target is NULL\n\n");
 		return MPI_ERR_BUFFER;
 	}
 	
 #ifdef DEBUG
-	for (i = 0; i < count; i += 1){
+	/**for (i = 0; i < count; i += 1){
 	    //mlog(MPI_DBG, "MPI_Bcast1, dataType: %d, %d npes: %d, com's npes: %d\n", dataType, MPI_LONG, npes, i);
 		((long*)target)[i] = -999;                                                                        
-	}
+	}**/
 #endif
 	
 	for (i = 0; i < _SHMEM_BCAST_SYNC_SIZE; i += 1){
@@ -316,6 +337,10 @@ int MPI_Bcast ( void *source, int count, MPI_Datatype dataType, int root, MPI_Co
 #endif
 	
 	shmem_barrier_all ();	
+
+	if (isMultiThreads){
+		pthread_mutex_unlock(&lockBcast);
+	}
 	
 	return MPI_SUCCESS;	
 }
@@ -346,6 +371,10 @@ int MPI_Comm_create (MPI_Comm comm, MPI_Group group, MPI_Comm *newcomm){
 		return MPI_ERR_COMM;
 	}
 	
+	if (isMultiThreads){
+		pthread_mutex_lock(&lockCommCreate);
+	}
+
 	// Do the following, if the process is in comm's group
 	i = 0;
 	while ( ( i < ((MPID_Group)*((MPID_Comm)*comm).groupPtr).size ) && !bIsPeInGroup) {
@@ -398,7 +427,7 @@ int MPI_Comm_create (MPI_Comm comm, MPI_Group group, MPI_Comm *newcomm){
 		((MPID_Comm)*newCommStruct).rank      = my_pe;
 		((MPID_Comm)*newCommStruct).size      = group.size;
 		((MPID_Comm)*newCommStruct).bufferPtr = sharedBuffer;
-		((MPID_Comm)*newCommStruct).groupPtr = groupPtr;
+		((MPID_Comm)*newCommStruct).groupPtr  = groupPtr;
 		
 		for (i=0; i<group.size; i++){
 			printf("MPI_Comm_create:: PE: %d, group[%d] = %d\n", my_pe, i, group.pesInGroup[i]);
@@ -411,6 +440,11 @@ int MPI_Comm_create (MPI_Comm comm, MPI_Group group, MPI_Comm *newcomm){
 		mlog(MPI_DBG, "MPI_Comm_Create: Me: %d, newcomm.rank: %d, .size: %d, .bufferPtr: %x\n", my_pe, ((MPID_Comm)**newcomm).rank, ((MPID_Comm)**newcomm).size, ((MPID_Comm)**newcomm).bufferPtr);
 #endif
 	}
+
+	if (isMultiThreads){
+		pthread_mutex_unlock(&lockCommCreate);
+	}
+	
 	return MPI_SUCCESS;
 }
 
@@ -438,6 +472,10 @@ int MPI_Comm_dup (MPI_Comm comm, MPI_Comm *newcomm){
 		return MPI_ERR_COMM;
 	}
 		
+	if (isMultiThreads){
+		pthread_mutex_lock(&lockCommDup);
+	}
+
 	// Create new shared memory space for the new communicator.                                                                                               
 	sharedBuffer = (void *)shmalloc(sizeof(char) * MAX_BUFFER_SIZE);
 	if (sharedBuffer == NULL ){
@@ -501,6 +539,10 @@ int MPI_Comm_dup (MPI_Comm comm, MPI_Comm *newcomm){
 	mlog(MPI_DBG, "MPI_Comm_dup: Me: %d, newcomm.rank: %d, .size: %d, .bufferPtr: %x\n", my_pe, ((MPID_Comm)**newcomm).rank, ((MPID_Comm)**newcomm).size, ((MPID_Comm)**newcomm).bufferPtr);
 #endif
 	
+	if (isMultiThreads){
+		pthread_mutex_unlock(&lockCommDup);
+	}
+
 	return MPI_SUCCESS;
 	
 }
@@ -516,12 +558,31 @@ int MPI_Comm_dup (MPI_Comm comm, MPI_Comm *newcomm){
 int MPI_Comm_free (MPI_Comm comm){
 	
 	int ret = MPI_SUCCESS;
+	int		   *pesGroupPtr;
+	MPID_Group *groupPtr;
+	void       *sharedBuffer;
 	
 	if (comm == NULL) {
 		mlog(MPI_ERR, "Invalid communicator.\n");
 		return MPI_ERR_COMM;
 	}
-		
+
+	if (isMultiThreads){
+		pthread_mutex_lock(&lockCommFree);
+	}
+	
+	// Start freeing the various parts of a comm.
+	groupPtr     = (MPID_Group *)(((MPID_Comm)*comm).groupPtr);
+	pesGroupPtr  = ((MPID_Group)*groupPtr).pesInGroup;
+	sharedBuffer = ((MPID_Comm)*comm).bufferPtr;
+	
+	shfree(pesGroupPtr);
+	shfree(groupPtr);
+	shfree(sharedBuffer);
+	
+	if (isMultiThreads){
+		pthread_mutex_unlock(&lockCommFree);
+	}
 	return ret;
 }
 
@@ -565,26 +626,25 @@ int MPI_Comm_group (MPI_Comm comm,	MPI_Group *group){
  */
 int MPI_Comm_rank (MPI_Comm comm, int *rank){
 	
-	MPID_Group *groupPtr;
-	
 	if (comm == NULL) {
 		mlog(MPI_ERR, "Invalid communicator.\n");
 		return MPI_ERR_COMM;
 	}
-		
-	groupPtr = ((MPID_Comm)*comm).groupPtr;
 	
-	if (groupPtr == NULL){
+	if (((MPID_Comm)*comm).groupPtr == NULL){
 		int my_pe = shmem_my_pe();
 		mlog(MPI_ERR, "MPI_Comm_rank, my_pe: %-8d, comm.groupPtr is NULL.\n",  my_pe);
 		return MPI_ERR_COMM;
 	}
-	*rank = ((MPID_Group)*groupPtr).rank;
+	
+	*rank = ((MPID_Group)*((MPID_Comm)*comm).groupPtr).rank;
 	
 #ifdef DEBUG
 	int my_pe = shmem_my_pe();
 	mlog(MPI_DBG, "MPI_Comm_rank, my_pe: %-8d rank: %d\n",  my_pe, *rank);
 #endif	
+	
+	
 	return MPI_SUCCESS;
 }
 
@@ -599,21 +659,18 @@ int MPI_Comm_rank (MPI_Comm comm, int *rank){
  */
 int MPI_Comm_size(MPI_Comm comm, int *size ){
 	
-	MPID_Group *groupPtr;
-	
 	if (comm == NULL) {
 		mlog(MPI_ERR, "Invalid communicator.\n");
 		return MPI_ERR_COMM;
 	}
-		
-	groupPtr = ((MPID_Comm)*comm).groupPtr;
-	
-	if (groupPtr == NULL){
+			
+	if (((MPID_Comm)*comm).groupPtr == NULL){
 		int my_pe = shmem_my_pe();
 		mlog(MPI_ERR, "MPI_Comm_size, my_pe: %-8d, comm.groupPtr is NULL.\n",  my_pe);
 		return MPI_ERR_COMM;
 	}
-	*size = ((MPID_Group)*groupPtr).size;
+	
+	*size = ((MPID_Group)*((MPID_Comm)*comm).groupPtr).size;
 	
 #ifdef DEBUG
 	int my_pe = shmem_my_pe();
@@ -648,14 +705,19 @@ int MPI_Allgather (void *sendbuf, int sendcount, MPI_Datatype sendtype, void *re
 	int bytes;
 	int isCollect32;    // see which collect we use, 1=collect32, 0=collect64, -1=error
 	
-	numPes = _num_pes();
-	my_pe = shmem_my_pe();
 	
 	if (comm == NULL) {
 		mlog(MPI_ERR, "Invalid communicator.\n");
 		return MPI_ERR_COMM;
 	}
-		
+
+	if (isMultiThreads){
+		pthread_mutex_lock(&lockAllGather);
+	}
+	
+	numPes = _num_pes();
+	my_pe = shmem_my_pe();
+	
 	// Verify that you have valid buffer pointer and space:
 	if ( (recvbuf == NULL) || (sendbuf == NULL) ){
 		mlog(MPI_ERR, "Error: buffer has an invalid pointer (it's NULL) PE: %d\n", my_pe);
@@ -708,6 +770,11 @@ int MPI_Allgather (void *sendbuf, int sendcount, MPI_Datatype sendtype, void *re
 	else {
 		shmem_collect64(recvbuf, sendbuf, sendcount, 0, 0, numPes, pSync);
 	}	
+
+	if (isMultiThreads){
+		pthread_mutex_unlock(&lockAllGather);
+	}
+	
 	
 	return MPI_SUCCESS;
 }
@@ -735,15 +802,19 @@ int MPI_Allgather (void *sendbuf, int sendcount, MPI_Datatype sendtype, void *re
 int MPI_Gather (void *sendbuf, int sendcount, MPI_Datatype sendtype, void *recvbuf, int recvcount, MPI_Datatype recvtype, int root, MPI_Comm comm){
 	//int i;
 	int numPes, my_pe;
-	
-	numPes = _num_pes();
-	my_pe = shmem_my_pe();
-	
+		
 	if (comm == NULL) {
 		mlog(MPI_ERR, "Invalid communicator.\n");
 		return MPI_ERR_COMM;
 	}
 		
+	if (isMultiThreads){
+		pthread_mutex_lock(&lockGather);
+	}
+	
+	numPes = _num_pes();
+	my_pe = shmem_my_pe();
+
 	// Verify that you have valid buffer pointer and space:
 	if ( (recvbuf == NULL) || (sendbuf == NULL) ){
 		mlog(MPI_ERR, "Error: buffer has an invalid pointer (it's NULL) PE: %d\n", my_pe);
@@ -801,6 +872,10 @@ int MPI_Gather (void *sendbuf, int sendcount, MPI_Datatype sendtype, void *recvb
 	// and to be on the safe side:
 	shmem_barrier_all ();
 	
+	if (isMultiThreads){
+		pthread_mutex_unlock(&lockGather);
+	}
+
 	return MPI_SUCCESS;
 }
 
@@ -833,6 +908,10 @@ int MPI_Gatherv (void *sendbuf, int sendcount, MPI_Datatype sendtype, void *recv
 		return MPI_ERR_COMM;
 	}
 	
+	if (isMultiThreads){
+		pthread_mutex_lock(&lockGatherV);
+	}
+
 	numPes = _num_pes();
 	my_pe = shmem_my_pe();
 	
@@ -901,6 +980,10 @@ int MPI_Gatherv (void *sendbuf, int sendcount, MPI_Datatype sendtype, void *recv
 	// and to be on the safe side:
 	shmem_barrier_all ();
 	
+	if (isMultiThreads){
+		pthread_mutex_unlock(&lockGatherV);
+	}
+
 	return MPI_SUCCESS;
 }
 
@@ -918,6 +1001,10 @@ int MPI_Gatherv (void *sendbuf, int sendcount, MPI_Datatype sendtype, void *recv
 int MPI_Group_incl (MPI_Group group, int n, int *ranks, MPI_Group *newgroup){
 	int i, my_pe, new_rank;
 	int *pesGroupPtr;
+
+	if (isMultiThreads){
+		pthread_mutex_lock(&lockGroupIncl);
+	}
 
 	my_pe = shmem_my_pe();
 	
@@ -942,6 +1029,10 @@ int MPI_Group_incl (MPI_Group group, int n, int *ranks, MPI_Group *newgroup){
 	
 	mlog(MPI_DBG, "MPI_Group_incl:: PE: %d,  new rank: %d\n", my_pe, new_rank);
 	
+	if (isMultiThreads){
+		pthread_mutex_unlock(&lockGroupIncl);
+	}
+
 	return MPI_SUCCESS;
 }
 
@@ -968,13 +1059,19 @@ int MPI_Recv (void *buf, int count, MPI_Datatype datatype, int source, int tag, 
 	
 	int  ret;
 	void *recv_buf;
-	int my_pe = shmem_my_pe();
+	int my_pe;
 	
 	if (comm == NULL) {
 		mlog(MPI_ERR, "Invalid communicator.\n");
 		return MPI_ERR_COMM;
 	}
-		
+	
+	if (isMultiThreads){
+		pthread_mutex_lock(&lockRecv);
+	}
+	
+	my_pe = shmem_my_pe();
+	
 	recv_buf = ((MPID_Comm)*comm).bufferPtr;
 	
 	if (recv_buf == NULL){
@@ -1029,6 +1126,10 @@ int MPI_Recv (void *buf, int count, MPI_Datatype datatype, int source, int tag, 
 		  break;
 	}
 	
+	if (isMultiThreads){
+		pthread_mutex_unlock(&lockRecv);
+	}
+
 	return ret;
 }
 
@@ -1049,7 +1150,7 @@ int MPI_Recv (void *buf, int count, MPI_Datatype datatype, int source, int tag, 
 int MPI_Send (void *buf, int count, MPI_Datatype datatype, int dest, int tag, MPI_Comm comm){
 	
 	int  ret;
-	int my_pe = shmem_my_pe();
+	int my_pe;
 	void *recv_buf;
 	
 	if (comm == NULL) {
@@ -1057,6 +1158,11 @@ int MPI_Send (void *buf, int count, MPI_Datatype datatype, int dest, int tag, MP
 		return MPI_ERR_COMM;
 	}
 	
+	if (isMultiThreads){
+		pthread_mutex_lock(&lockSend);
+	}
+	
+	my_pe = shmem_my_pe();
 	recv_buf = ((MPID_Comm)*comm).bufferPtr;
 	
 	if (recv_buf == NULL){
@@ -1112,6 +1218,10 @@ int MPI_Send (void *buf, int count, MPI_Datatype datatype, int dest, int tag, MP
 	
 	// and to be on the safe side:
 	shmem_fence();
+
+	if (isMultiThreads){
+		pthread_mutex_unlock(&lockSend);
+	}
 	
 	return ret;
 }
@@ -1137,13 +1247,18 @@ int MPI_Irecv (void *buf, int count, MPI_Datatype datatype, int source, int tag,
 	
 	int  ret;
 	void *recv_buf;
-	int my_pe = shmem_my_pe();
+	int my_pe;
 	
 	if (comm == NULL) {
 		mlog(MPI_ERR, "Invalid communicator.\n");
 		return MPI_ERR_COMM;
 	}
 		
+	if (isMultiThreads){
+		pthread_mutex_lock(&lockIRecv);
+	}
+
+	my_pe = shmem_my_pe();
 	recv_buf = ((MPID_Comm)*comm).bufferPtr;
 	
 	if (recv_buf == NULL){
@@ -1210,6 +1325,10 @@ int MPI_Irecv (void *buf, int count, MPI_Datatype datatype, int source, int tag,
 	
 	//printf("Irecv: PE: %d, From PE: %d, got: ? \n", my_pe, (*request).rank );
 	
+	if (isMultiThreads){
+		pthread_mutex_unlock(&lockIRecv);
+	}
+	
 	return ret;
 }
 
@@ -1233,14 +1352,19 @@ int MPI_Irecv (void *buf, int count, MPI_Datatype datatype, int source, int tag,
 int MPI_Isend(void *buf, int count, MPI_Datatype datatype, int dest, int tag, MPI_Comm comm, MPI_Request *request){
 	
 	int  ret;
-	int my_pe = shmem_my_pe();
+	int my_pe;
 	void *recv_buf;
 	
 	if (comm == NULL) {
 		mlog(MPI_ERR, "Invalid communicator.\n");
 		return MPI_ERR_COMM;
 	}
+
+	if (isMultiThreads){
+		pthread_mutex_lock(&lockISend);
+	}
 	
+	my_pe = shmem_my_pe();
 	recv_buf = ((MPID_Comm)*comm).bufferPtr;
 	
 	if (recv_buf == NULL){
@@ -1307,6 +1431,10 @@ int MPI_Isend(void *buf, int count, MPI_Datatype datatype, int dest, int tag, MP
 	(*request).dataType	   = datatype;
 
 	//printf("MPI_Isend: PE: %d to PE: %d, sent: %d\n", my_pe, (*request).rank, ( (int *)(buf))[0] );
+	if (isMultiThreads){
+		pthread_mutex_unlock(&lockISend);
+	}
+
 	return ret;
 }
 
@@ -1327,14 +1455,21 @@ int MPI_Isend(void *buf, int count, MPI_Datatype datatype, int dest, int tag, MP
 int MPI_Unpack (void *inbuf, int insize, int *position, void *outbuf, int outcount, MPI_Datatype datatype, MPI_Comm comm){
 	
 	int numBytes;
-	int totalNumBytes = 0;
-	int my_pe = shmem_my_pe();
+	int totalNumBytes;
+	int my_pe;
 	int rank;
 	
 	if (comm == NULL) {
 		mlog(MPI_ERR, "Invalid communicator.\n");
 		return MPI_ERR_COMM;
 	}
+	
+	if (isMultiThreads){
+		pthread_mutex_lock(&lockUnpack);
+	}
+
+	totalNumBytes = 0;
+	my_pe         = shmem_my_pe();
 	
 	MPI_Comm_rank(comm, &rank);
 	
@@ -1390,6 +1525,10 @@ int MPI_Unpack (void *inbuf, int insize, int *position, void *outbuf, int outcou
 	// Don't forget to increment the position
 	*position = *position + numBytes;
 	
+	if (isMultiThreads){
+		pthread_mutex_unlock(&lockUnpack);
+	}
+	
 	return MPI_SUCCESS;	
 }
 
@@ -1410,8 +1549,8 @@ int MPI_Unpack (void *inbuf, int insize, int *position, void *outbuf, int outcou
 int MPI_Pack(void *inbuf, int incount, MPI_Datatype datatype, void *outbuf, int outsize, int *position,  MPI_Comm comm){
 	
 	int numBytes;
-	int totalNumBytes = 0;
-	int my_pe = shmem_my_pe();
+	int totalNumBytes;
+	int my_pe;
 	int rank;
 	
 	if (comm == NULL) {
@@ -1419,6 +1558,13 @@ int MPI_Pack(void *inbuf, int incount, MPI_Datatype datatype, void *outbuf, int 
 		return MPI_ERR_COMM;
 	}
 		
+	if (isMultiThreads){
+		pthread_mutex_lock(&lockPack);
+	}
+	
+	totalNumBytes = 0;
+	my_pe         = shmem_my_pe();
+	
 	MPI_Comm_rank(comm, &rank);
 	
 	// Figure out how many bytes the datatype has                                                                               
@@ -1459,11 +1605,14 @@ int MPI_Pack(void *inbuf, int incount, MPI_Datatype datatype, void *outbuf, int 
 	
 	//mlog(MPI_DBG,"MPI_Pack, PE: %d, Number of bytes: %d, position: %d \n", my_pe, numBytes, *position);
 	//mlog(MPI_DBG,"MPI_Pack, PE: %d, inbuf: %c, outbuf: %c \n", rank, ((char *)inbuf)[*position], ((char *)outbuf)[0]);
+	printf("MPI_Pack, PE: %d, Number of bytes: %d, position: %d \n", my_pe, numBytes, *position);
+	printf("MPI_Pack, PE: %d, inbuf: %c, outbuf: %c \n", rank, ((char *)inbuf)[*position], ((char *)outbuf)[0]);
 	
 	// Check to see if there is enough space for the send:
 	totalNumBytes = numBytes + *position;
 	if (totalNumBytes > outsize) {
 		mlog(MPI_ERR,"MPI_Pack::, pe: %d total bytes is larger (%d) than buffer size (%d).\n", my_pe, totalNumBytes, outsize);
+		printf("MPI_Pack::, pe: %d total bytes is larger (%d) than buffer size (%d).\n", my_pe, totalNumBytes, outsize);
 		return MPI_ERR_NO_SPACE;
 	}
 	
@@ -1476,6 +1625,10 @@ int MPI_Pack(void *inbuf, int incount, MPI_Datatype datatype, void *outbuf, int 
 	// Don't forget to increment the position
 	*position = *position + numBytes;
 	
+	if (isMultiThreads){
+		pthread_mutex_unlock(&lockPack);
+	}
+
 	return MPI_SUCCESS;	
 }
 
@@ -1503,8 +1656,14 @@ int MPI_Finalize(void){
  * @return MPI_SUCCESS
  */
 int MPI_Test (MPI_Request *request, int *flag, MPI_Status *status){
-	int value = 0;
+	int value;
 
+	if (isMultiThreads){
+		pthread_mutex_lock(&lockTest);
+	}
+
+	value = 0;
+	
 	// Asssume transfer not there:                                                                   
 	*flag = 0;
 	
@@ -1516,5 +1675,55 @@ int MPI_Test (MPI_Request *request, int *flag, MPI_Status *status){
 	//mlog(MPI_DBG,"MPI_Test, flag: %d For Pe: %d, value = %d", *flag, (*request).rank, value);
 	//mlog(MPI_DBG," lastBufPtr = %d, expected: %d\n",( (int *)((*request).lastBufPtr))[0], ( (int *)((*request).expected))[0] );
 	
+	if (isMultiThreads){
+		pthread_mutex_unlock(&lockTest);
+	}
+	
 	return MPI_SUCCESS;
+}
+
+/**
+ * MPI_Iprobe
+ * This was created for pftool, and this routine should not be used.
+ * There is no way to tell if a put/get is finished in openshmem.
+ * This relies on a sleep, which is very inaccurate.
+ *
+ * @param source	source rank
+ * @param tag		tag value
+ * @param comm		communicator
+ * @param flag		True if a message with the specified source, tag, and communicator anr available (not reliable)
+ * @param status	status object (not used).
+ *
+ * @return MPI_SUCCESS
+ */
+int MPI_Iprobe(int source, int tag, MPI_Comm comm, int *flag, MPI_Status *status){
+
+	int rank;
+	
+	if (comm == NULL) {
+		mlog(MPI_ERR, "Invalid communicator.\n");
+		return MPI_ERR_COMM;
+	}
+	
+	if (isMultiThreads){
+		pthread_mutex_lock(&lockIprobe);
+	}
+	
+	MPI_Comm_rank(comm, &rank);
+	
+	//if (source == rank){
+		shmem_fence();
+		shmem_barrier_all();
+		
+		*flag = 1;
+	//}
+	
+	sleep(10);
+	
+	if (isMultiThreads){
+		pthread_mutex_unlock(&lockIprobe);
+	}
+
+	return MPI_SUCCESS;
+	
 }
