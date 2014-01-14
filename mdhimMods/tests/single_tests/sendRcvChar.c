@@ -27,9 +27,9 @@ int main(int argc, char *argv[])
 	else
 		src = 'c';
 	
-	dest = (char *) shmalloc (sizeof (*dest));
+	dest = (char *) malloc (sizeof (*dest));
 	if (dest == NULL){
-		printf("Couldn't shmalloc.\n");
+		printf("Couldn't malloc.\n");
 	}
 	
 	*dest = 'z';
