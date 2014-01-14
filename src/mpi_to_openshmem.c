@@ -283,7 +283,8 @@ int MPI_Bcast ( void *source, int count, MPI_Datatype dataType, int root, MPI_Co
 	
 	int  i;
 	int  npes, my_pe;
-	void *target;
+	void *symSource;
+	int  createSymSource;
 
 	if (comm == NULL) {
 		mlog(MPI_ERR, "Invalid communicator.\n");
@@ -297,22 +298,34 @@ int MPI_Bcast ( void *source, int count, MPI_Datatype dataType, int root, MPI_Co
 	npes = _num_pes();
 	my_pe = shmem_my_pe();
 
-	//printf("MPI_Bcast, Rank: %d count: %d, DataType: %d, Root: %d\n", my_pe, count, dataType, root);
-
+	createSymSource = FALSE;
+	
 	if ( !shmem_addr_accessible( source, my_pe) ) {
+		// Okay, try to find a work around
+		MPI_Status status;
+		
 		//printf("MPI_Bcast::Buffer is not in a symmetric segment, pe: %d\n", my_pe);
-		mlog(MPI_ERR, "Error: Buffer is not in a symmetric segment, %d\n", my_pe);
+		mlog(MPI_DBG, "Debug: Buffer is not in a symmetric segment, %d\n", my_pe);
+		
+		symSource = shmalloc( sizeof(dataType) * count );
+		if (symSource == NULL) {
+			mlog(MPI_ERR, "MPI_Bcast:: could not create symmetric buffer space for the source.\n");
+			return MPI_ERR_BUFFER;
+		}
+
+		// Move source into the symmetric buffer data into source for root
+		if ( my_pe == root){
+			for (i=0; i<count; i++){
+				((long*)symSource)[i] = ((long*)source)[i];
+				printf("MPI_Bcast: my pe: %-8d symSource: %ld\n", my_pe, ((long*)symSource)[i]);
+			}
+		}
+		MPI_Barrier(comm);
+		
+		createSymSource = TRUE;
 		return MPI_ERR_BUFFER;
 	}
 	
-	target = (void *)((MPID_Comm)*comm).bufferPtr;
-	if (target != NULL){
-        mlog(MPI_DBG,"MPI_Bcast:: mpiComm[comm].bufferPtr: %x\n", target);
-        //printf("MPI_Bcast:: mpiComm[comm].bufferPtr: %x\n", target);
-	}else{
-		mlog(MPI_DBG,"MPI_Bcast:: target is NULL\n\n");
-		return MPI_ERR_BUFFER;
-	}
 	
 #ifdef DEBUG
 	/**for (i = 0; i < count; i += 1){
@@ -320,6 +333,7 @@ int MPI_Bcast ( void *source, int count, MPI_Datatype dataType, int root, MPI_Co
 		((long*)target)[i] = -999;                                                                        
 	}**/
 #endif
+	//printf("MPI_Bcast 2: my pe: %-8d\n", my_pe);
 	
 	for (i = 0; i < _SHMEM_BCAST_SYNC_SIZE; i += 1){
 		pSync[i] = _SHMEM_SYNC_VALUE;
@@ -327,16 +341,49 @@ int MPI_Bcast ( void *source, int count, MPI_Datatype dataType, int root, MPI_Co
 	
 	shmem_barrier_all ();
 	
-	shmem_broadcast64( ((MPID_Comm)*comm).bufferPtr, source, count, root, 0, 0, npes, pSync);
+	if (createSymSource) {
+		shmem_broadcast64( ((MPID_Comm)*comm).bufferPtr, symSource, count, root, 0, 0, npes, pSync);
+		
+	}
+	else{
+		shmem_broadcast64( ((MPID_Comm)*comm).bufferPtr, source, count, root, 0, 0, npes, pSync);
+	}
 	
+	shmem_barrier_all();
+	/*if (my_pe != root) {
+		for (i = 0; i < count; i++){
+			printf("MPI_Bcast1: my pe: %-8d bufferPtr: %ld\n", my_pe, ((long*)((MPID_Comm)*comm).bufferPtr)[i]);
+		}
+	}*/
 	
+	// Move the symmetric buffer data into source, which is the target...
+	if (my_pe != root) {
+		printf("MPI_Bcast 5: my pe: %-8d\n", my_pe);
+		for (i=0; i<count;i++){
+			if (!createSymSource) 
+				((long*)source)[i] = ((long*)((MPID_Comm)*comm).bufferPtr)[i];
+			else 
+				((long*)source)[i] = ((long*)symSource)[i];
+		}
+	}
+	shmem_barrier_all();
+
 #ifdef DEBUG
 	for (i = 0; i < count; i++){
-		mlog(MPI_DBG, "MPI_Bcast1: my pe: %-8d source: %ld target: %ld\n", my_pe, ((long*)source)[i], ((long*)target)[i]);                                                
+		//mlog(MPI_DBG, "MPI_Bcast1: my pe: %-8d source: %ld\n", my_pe, ((long*)source)[i]); 
+		//if (!createSymSource)
+		printf("MPI_Bcast1: my pe: %-8d source: %ld\n", my_pe, ((long*)source)[i]);
+		printf("MPI_Bcast1: my pe: %-8d bufferPtr: %ld\n", my_pe, ((long*)((MPID_Comm)*comm).bufferPtr)[i]);
+	//else {
+		//	printf("MPI_Bcast1: my pe: %-8d source: %ld\n", my_pe, ((long*)symSource)[i]);
+		//}
+
 	}
 #endif
+	//printf("MPI_Bcast 6: my pe: %-8d\n", my_pe);
 	
-	shmem_barrier_all ();	
+	//shmem_barrier_all ();	
+	//printf("MPI_Bcast 7: my pe: %-8d\n", my_pe);
 
 	if (isMultiThreads){
 		pthread_mutex_unlock(&lockBcast);
