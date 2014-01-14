@@ -35,9 +35,9 @@ int main(int argc, char *argv[])
 
   src = rank;
 
-  dest = (int *) shmalloc (sizeof (*dest));
+  dest = (int *) malloc (sizeof (*dest));
   if (dest == NULL){
-    printf("Couldn't shmalloc.\n");
+    printf("Couldn't malloc.\n");
   }
 
   *dest = 99;
@@ -62,7 +62,7 @@ int main(int argc, char *argv[])
   printf ("\n");
 
   shmem_barrier_all ();
-  shfree (dest);
+  free (dest);
   return 0;
 
 }
