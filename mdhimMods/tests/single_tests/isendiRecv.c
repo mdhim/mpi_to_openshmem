@@ -35,25 +35,23 @@ int main(int argc, char *argv[])
 	
 	nextpe = (rank + 1) % size;
 	
-	//src = rank;
-	
-	dest = (long *) shmalloc (sizeof (*dest) * BUF_SIZE);
+	dest = (long *) malloc (sizeof (*dest) * BUF_SIZE);
 	if (dest == NULL){
-		printf("Couldn't shmalloc.\n");
+		printf("Couldn't malloc.\n");
 	}
 	
 	for(i=0;i<BUF_SIZE;i++){
 		dest[i] = 99;
 		src[i] = nextpe + i;
 	}
-	//shmem_barrier_all ();
+	shmem_barrier_all ();
 	
 	//shmem_int_put (dest, &src, 1, nextpe);
 	MPI_Isend(&src, BUF_SIZE, MPI_LONG, nextpe, 123, MPI_COMM_WORLD, &req[0]);
 	//shmem_int_get (dest, &src, 1, nextpe);
 	MPI_Irecv(dest, BUF_SIZE, MPI_LONG, nextpe, 123, MPI_COMM_WORLD, &req[1]);
 	
-	//shmem_barrier_all ();
+	shmem_barrier_all ();
 	
 	for (i=0;i<BUF_SIZE;i++){
 		printf ("%4d: src[%d]: %4ld, dest[]: %ld\n", rank, i, src[i], dest[i]);
@@ -68,8 +66,8 @@ int main(int argc, char *argv[])
     }
 	printf ("\n");
 	
-	//shmem_barrier_all ();
-	shfree (dest);
+	shmem_barrier_all ();
+	free (dest);
 	return 0;
 	
 }
