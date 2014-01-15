@@ -112,6 +112,7 @@ typedef struct MPID_Comm {
     int				size;		 /* Value of MPI_Comm_size for local group */
     MPID_Group		*groupPtr;   /* Groups in communicator. */
 	void			*bufferPtr;
+	int				offset;      /* offset into the buffer - placeholder. */
 } MPID_Comm;
 
 typedef struct MPID_Request{
