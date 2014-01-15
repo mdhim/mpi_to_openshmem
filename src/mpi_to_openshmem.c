@@ -187,7 +187,7 @@ int MPI_Init_thread( int *argc, char ***argv, int required, int *provided ){
 		
 #ifdef DEBUG
 		int me = _my_pe();
-		printf("MPI_Init_Thread: Me: %d, MPI_COMM_WORLD.rank: %d, .size: %d\n", me, ((MPID_Comm) *MPI_COMM_WORLD).rank,((MPID_Comm) *MPI_COMM_WORLD).size);
+		//printf("MPI_Init_Thread: Me: %d, MPI_COMM_WORLD.rank: %d, .size: %d\n", me, ((MPID_Comm) *MPI_COMM_WORLD).rank,((MPID_Comm) *MPI_COMM_WORLD).size);
 		mlog(MPI_DBG, "MPI_Init_Thread: Me: %d, MPI_COMM_WORLD.rank: %d, .size: %d, .bufferPtr: %x\n", me, ((MPID_Comm) *MPI_COMM_WORLD).rank, ((MPID_Comm) *MPI_COMM_WORLD).size,((MPID_Comm) *MPI_COMM_WORLD).bufferPtr);
 #endif
 	
@@ -261,6 +261,151 @@ int MPI_Barrier (MPI_Comm comm){
 	return ret;
 }
 
+
+/**
+ * CopyMyData
+ *   Copy data from one buffer to another.  Why am I not using memcpy?  
+ *   because it didn't work.  The values never ended up in the destination 
+ *	 buffer...
+ *
+ * Input/Output Parameter
+ *
+ * @param  toBuf	destination buffer
+ * @param  fromBuf	source buffer
+ * @param  count	number of items to copy
+ * @param  dataType	data type of the items
+ *
+ * @return status
+ */
+
+int CopyMyData( void *toBuf, void *fromBuf, int count, MPI_Datatype dataType ){
+
+	int i, my_pe;
+	int ret;
+	
+	ret = MPI_SUCCESS;
+	my_pe = shmem_my_pe();
+	
+	switch (dataType){
+		case MPI_CHAR:
+		case MPI_UNSIGNED_CHAR:
+		case MPI_BYTE:
+			for (i=0; i<count; i++){
+				((char*)toBuf)[i] = ((char*)fromBuf)[i];
+			}
+			break;
+		case MPI_SHORT:
+		case MPI_UNSIGNED_SHORT:
+			for (i=0; i<count; i++){
+				((short*)toBuf)[i] = ((short*)fromBuf)[i];
+			}
+			break;
+		case MPI_INT:
+		case MPI_UNSIGNED:
+			for (i=0; i<count; i++){
+				((int*)toBuf)[i] = ((int*)fromBuf)[i];
+			}
+			break;
+		case MPI_LONG:
+		case MPI_UNSIGNED_LONG:
+			/* doesn't work: memcpy((long*)toBuf, (long*)fromBuf, count);*/
+			for (i=0; i<count; i++){
+				((long*)toBuf)[i] = ((long*)fromBuf)[i];
+				//printf("MPI_Bcast: my pe: %-8d symSource: %ld\n", my_pe, ((long*)toBuf)[i]);
+			}
+			break;
+		case MPI_FLOAT:
+			for (i=0; i<count; i++){
+				((float*)toBuf)[i] = ((float*)fromBuf)[i];
+			}
+			break;
+		case MPI_DOUBLE:
+			for (i=0; i<count; i++){
+				((double*)toBuf)[i] = ((double*)fromBuf)[i];
+			}
+			break;
+		case MPI_LONG_DOUBLE:
+			for (i=0; i<count; i++){
+				((long double*)toBuf)[i] = ((long double*)fromBuf)[i];
+			}
+			break;
+		case MPI_LONG_LONG:
+			for (i=0; i<count; i++){
+				((long long*)toBuf)[i] = ((long long*)fromBuf)[i];
+			}
+			break;
+		default:
+			ret = MPI_ERR_TYPE;
+			break;
+	}
+	
+	return ret;
+	
+}
+/**
+ * GetBufferOffset
+ *   Calculate the offset of comm's buffer, since you are
+ *   using part of it for something...
+ *
+ * Input/Output Parameter
+ *
+ * @param  count		number of items currenlt in the buffer
+ * @param  dataType		data type of the items
+ * @param  comm		communicator (handle) 
+ *
+ * @return  bufferPtr	calculate the offset from the beginning of the symmetric buffer.
+ */
+
+void *GetBufferOffset( int count, MPI_Datatype dataType,  MPI_Comm comm){
+	
+	int i, my_pe;
+	int offset;
+	void *bufferPtr;
+	
+	my_pe = shmem_my_pe();
+	
+	switch (dataType){
+		case MPI_CHAR:
+		case MPI_UNSIGNED_CHAR:
+		case MPI_BYTE:
+			offset = count * sizeof(char);
+			break;
+		case MPI_SHORT:
+		case MPI_UNSIGNED_SHORT:
+			offset = count * sizeof(short);
+			break;
+		case MPI_INT:
+		case MPI_UNSIGNED:
+			offset = count * sizeof(int);
+			break;
+		case MPI_LONG:
+		case MPI_UNSIGNED_LONG:
+			offset = count * sizeof(long);
+			break;
+		case MPI_FLOAT:
+			offset = count * sizeof(float);
+			break;
+		case MPI_DOUBLE:
+			offset = count * sizeof(double);
+			break;
+		case MPI_LONG_DOUBLE:
+			offset = count * sizeof(long double);
+			break;
+		case MPI_LONG_LONG:
+			offset = count * sizeof(long long);
+			break;
+		default:
+			offset = count * sizeof(char);
+			break;
+	}
+    
+	mlog(MPI_DBG, "GetBufferOffset: rank: %d offset: %d, long size: %d\n", my_pe, offset, sizeof(long));
+	bufferPtr = &(((void*)((MPID_Comm)*comm).bufferPtr)[offset]);
+	
+	return bufferPtr;
+	
+}
+
 /**
  * MPI_Bcast
  * Broadcasts a message from the process with rank "root" to all other processes
@@ -284,7 +429,9 @@ int MPI_Bcast ( void *source, int count, MPI_Datatype dataType, int root, MPI_Co
 	int  i;
 	int  npes, my_pe;
 	void *symSource;
+	void *destBuffer;
 	int  createSymSource;
+	//int	 offset;
 
 	if (comm == NULL) {
 		mlog(MPI_ERR, "Invalid communicator.\n");
@@ -302,38 +449,24 @@ int MPI_Bcast ( void *source, int count, MPI_Datatype dataType, int root, MPI_Co
 	
 	if ( !shmem_addr_accessible( source, my_pe) ) {
 		// Okay, try to find a work around
-		MPI_Status status;
-		
 		//printf("MPI_Bcast::Buffer is not in a symmetric segment, pe: %d\n", my_pe);
 		mlog(MPI_DBG, "Debug: Buffer is not in a symmetric segment, %d\n", my_pe);
 		
-		symSource = shmalloc( sizeof(dataType) * count );
-		if (symSource == NULL) {
-			mlog(MPI_ERR, "MPI_Bcast:: could not create symmetric buffer space for the source.\n");
-			return MPI_ERR_BUFFER;
-		}
-
-		// Move source into the symmetric buffer data into source for root
-		if ( my_pe == root){
-			for (i=0; i<count; i++){
-				((long*)symSource)[i] = ((long*)source)[i];
-				printf("MPI_Bcast: my pe: %-8d symSource: %ld\n", my_pe, ((long*)symSource)[i]);
-			}
-		}
-		MPI_Barrier(comm);
+		symSource = ((void*)((MPID_Comm)*comm).bufferPtr);
+		
+		// Move user's source into the symmetric buffer, since they can't create one.
+		CopyMyData( symSource, source, count, dataType);
+#ifdef DEBUG
+		/**for (i=0; i<count; i++){
+			printf("MPI_Bcast: rank: %d symSource: %ld\n", my_pe, ((long*)symSource)[i]);
+		}**/
+#endif
+		
+		// Make the destination start at an offset:
+		destBuffer = GetBufferOffset( count, dataType, comm );
 		
 		createSymSource = TRUE;
-		return MPI_ERR_BUFFER;
 	}
-	
-	
-#ifdef DEBUG
-	/**for (i = 0; i < count; i += 1){
-	    //mlog(MPI_DBG, "MPI_Bcast1, dataType: %d, %d npes: %d, com's npes: %d\n", dataType, MPI_LONG, npes, i);
-		((long*)target)[i] = -999;                                                                        
-	}**/
-#endif
-	//printf("MPI_Bcast 2: my pe: %-8d\n", my_pe);
 	
 	for (i = 0; i < _SHMEM_BCAST_SYNC_SIZE; i += 1){
 		pSync[i] = _SHMEM_SYNC_VALUE;
@@ -342,7 +475,7 @@ int MPI_Bcast ( void *source, int count, MPI_Datatype dataType, int root, MPI_Co
 	shmem_barrier_all ();
 	
 	if (createSymSource) {
-		shmem_broadcast64( ((MPID_Comm)*comm).bufferPtr, symSource, count, root, 0, 0, npes, pSync);
+		shmem_broadcast64( destBuffer, symSource, count, root, 0, 0, npes, pSync);
 		
 	}
 	else{
@@ -350,40 +483,24 @@ int MPI_Bcast ( void *source, int count, MPI_Datatype dataType, int root, MPI_Co
 	}
 	
 	shmem_barrier_all();
-	/*if (my_pe != root) {
-		for (i = 0; i < count; i++){
-			printf("MPI_Bcast1: my pe: %-8d bufferPtr: %ld\n", my_pe, ((long*)((MPID_Comm)*comm).bufferPtr)[i]);
-		}
-	}*/
 	
 	// Move the symmetric buffer data into source, which is the target...
 	if (my_pe != root) {
-		printf("MPI_Bcast 5: my pe: %-8d\n", my_pe);
-		for (i=0; i<count;i++){
-			if (!createSymSource) 
-				((long*)source)[i] = ((long*)((MPID_Comm)*comm).bufferPtr)[i];
-			else 
-				((long*)source)[i] = ((long*)symSource)[i];
-		}
+
+		if (!createSymSource) 
+			CopyMyData(source, ((MPID_Comm)*comm).bufferPtr, count, dataType);
+		else 
+			CopyMyData(source, destBuffer, count, dataType);
 	}
-	shmem_barrier_all();
 
 #ifdef DEBUG
 	for (i = 0; i < count; i++){
-		//mlog(MPI_DBG, "MPI_Bcast1: my pe: %-8d source: %ld\n", my_pe, ((long*)source)[i]); 
-		//if (!createSymSource)
-		printf("MPI_Bcast1: my pe: %-8d source: %ld\n", my_pe, ((long*)source)[i]);
-		printf("MPI_Bcast1: my pe: %-8d bufferPtr: %ld\n", my_pe, ((long*)((MPID_Comm)*comm).bufferPtr)[i]);
-	//else {
-		//	printf("MPI_Bcast1: my pe: %-8d source: %ld\n", my_pe, ((long*)symSource)[i]);
-		//}
-
+		mlog(MPI_DBG, "MPI_Bcast1: rank: %-8d source: %ld\n", my_pe, ((long*)source)[i]); 
+		//printf("MPI_Bcast1: rank: %-8d source: %ld\n", my_pe, ((long*)source)[i]);
+		//if (!createSymSource) 
+		//	printf("MPI_Bcast1: rank: %-8d bufferPtr: %ld\n", my_pe, ((long*)((MPID_Comm)*comm).bufferPtr)[i]);
 	}
 #endif
-	//printf("MPI_Bcast 6: my pe: %-8d\n", my_pe);
-	
-	//shmem_barrier_all ();	
-	//printf("MPI_Bcast 7: my pe: %-8d\n", my_pe);
 
 	if (isMultiThreads){
 		pthread_mutex_unlock(&lockBcast);
