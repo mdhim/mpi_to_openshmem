@@ -78,10 +78,11 @@ int MPI_Init( int *argc, char ***argv ){
 	//printf("MPI_Init_Thread: after start_pes, set up rank and local size\n");
 	
 	// Set up the rank and local_size (npes)
-	((MPID_Comm) *MPI_COMM_WORLD).rank          = my_pe;
-	((MPID_Comm) *MPI_COMM_WORLD).size          = npes;
-	((MPID_Comm) *MPI_COMM_WORLD).bufferPtr     = sharedBuffer;
- 	((MPID_Comm) *MPI_COMM_WORLD).groupPtr = groupPtr;
+	((MPID_Comm) *MPI_COMM_WORLD).rank      = my_pe;
+	((MPID_Comm) *MPI_COMM_WORLD).size      = npes;
+	((MPID_Comm) *MPI_COMM_WORLD).bufferPtr = sharedBuffer;
+ 	((MPID_Comm) *MPI_COMM_WORLD).groupPtr  = groupPtr;
+ 	((MPID_Comm) *MPI_COMM_WORLD).offset    = 0;
 	
 	// Set values in the Comm's Group
 	((MPID_Group)*groupPtr).rank    = my_pe;
@@ -169,10 +170,11 @@ int MPI_Init_thread( int *argc, char ***argv, int required, int *provided ){
 	//printf("MPI_Init_Thread: after start_pes, set up rank and local size\n");
 	
 	// Set up the rank and local_size (npes)
-	((MPID_Comm) *MPI_COMM_WORLD).rank          = my_pe;
-	((MPID_Comm) *MPI_COMM_WORLD).size          = npes;
-	((MPID_Comm) *MPI_COMM_WORLD).bufferPtr     = sharedBuffer;
- 	((MPID_Comm) *MPI_COMM_WORLD).groupPtr = groupPtr;
+	((MPID_Comm) *MPI_COMM_WORLD).rank      = my_pe;
+	((MPID_Comm) *MPI_COMM_WORLD).size      = npes;
+	((MPID_Comm) *MPI_COMM_WORLD).bufferPtr = sharedBuffer;
+ 	((MPID_Comm) *MPI_COMM_WORLD).groupPtr  = groupPtr;
+ 	((MPID_Comm) *MPI_COMM_WORLD).offset    = 0;
 	
 	// Set values in the Comm's Group
 	((MPID_Group)*groupPtr).rank    = my_pe;
@@ -282,7 +284,14 @@ int CopyMyData( void *toBuf, void *fromBuf, int count, MPI_Datatype dataType ){
 
 	int i, my_pe;
 	int ret;
+
+	if (isMultiThreads){
+		pthread_mutex_lock(&lockCopyData);
+	}
 	
+	printf("CopyMyData:: starting...\n");
+
+
 	ret = MPI_SUCCESS;
 	my_pe = shmem_my_pe();
 	
@@ -311,7 +320,7 @@ int CopyMyData( void *toBuf, void *fromBuf, int count, MPI_Datatype dataType ){
 			/* doesn't work: memcpy((long*)toBuf, (long*)fromBuf, count);*/
 			for (i=0; i<count; i++){
 				((long*)toBuf)[i] = ((long*)fromBuf)[i];
-				//printf("MPI_Bcast: my pe: %-8d symSource: %ld\n", my_pe, ((long*)toBuf)[i]);
+				printf("MPI_Bcast: my pe: %-8d symSource: %ld\n", my_pe, ((long*)toBuf)[i]);
 			}
 			break;
 		case MPI_FLOAT:
@@ -338,6 +347,9 @@ int CopyMyData( void *toBuf, void *fromBuf, int count, MPI_Datatype dataType ){
 			ret = MPI_ERR_TYPE;
 			break;
 	}
+	if (isMultiThreads){
+		pthread_mutex_unlock(&lockCopyData);
+	}
 	
 	return ret;
 	
@@ -346,61 +358,78 @@ int CopyMyData( void *toBuf, void *fromBuf, int count, MPI_Datatype dataType ){
  * GetBufferOffset
  *   Calculate the offset of comm's buffer, since you are
  *   using part of it for something...
+ *   Adjust the offset in comm as well... Which needs to be cleared.
  *
  * Input/Output Parameter
  *
- * @param  count		number of items currenlt in the buffer
+ * @param  count		number of items currently in the buffer
+ * @param  offset		number of bytes in buffer.
  * @param  dataType		data type of the items
  * @param  comm		communicator (handle) 
  *
  * @return  bufferPtr	calculate the offset from the beginning of the symmetric buffer.
  */
 
-void *GetBufferOffset( int count, MPI_Datatype dataType,  MPI_Comm comm){
+void *GetBufferOffset( int count, int *numBytes, MPI_Datatype dataType,  MPI_Comm comm){
 	
 	int i, my_pe;
-	int offset;
+	int currentOffset;
+	int newOffset;
 	void *bufferPtr;
 	
+	if (isMultiThreads){
+		pthread_mutex_lock(&lockGetOffset);
+	}
+
 	my_pe = shmem_my_pe();
 	
 	switch (dataType){
 		case MPI_CHAR:
 		case MPI_UNSIGNED_CHAR:
 		case MPI_BYTE:
-			offset = count * sizeof(char);
+			*numBytes = count * sizeof(char);
 			break;
 		case MPI_SHORT:
 		case MPI_UNSIGNED_SHORT:
-			offset = count * sizeof(short);
+			*numBytes = count * sizeof(short);
 			break;
 		case MPI_INT:
 		case MPI_UNSIGNED:
-			offset = count * sizeof(int);
+			*numBytes = count * sizeof(int);
 			break;
 		case MPI_LONG:
 		case MPI_UNSIGNED_LONG:
-			offset = count * sizeof(long);
+			*numBytes = count * sizeof(long);
 			break;
 		case MPI_FLOAT:
-			offset = count * sizeof(float);
+			*numBytes = count * sizeof(float);
 			break;
 		case MPI_DOUBLE:
-			offset = count * sizeof(double);
+			*numBytes = count * sizeof(double);
 			break;
 		case MPI_LONG_DOUBLE:
-			offset = count * sizeof(long double);
+			*numBytes = count * sizeof(long double);
 			break;
 		case MPI_LONG_LONG:
-			offset = count * sizeof(long long);
+			*numBytes = count * sizeof(long long);
 			break;
 		default:
-			offset = count * sizeof(char);
+			*numBytes = count * sizeof(char);
 			break;
 	}
     
-	mlog(MPI_DBG, "GetBufferOffset: rank: %d offset: %d, long size: %d\n", my_pe, offset, sizeof(long));
-	bufferPtr = &(((void*)((MPID_Comm)*comm).bufferPtr)[offset]);
+	// Get the current offset from the comm.
+	currentOffset = ((MPID_Comm)*comm).offset;
+	newOffset     = currentOffset + *numBytes;
+	
+	printf("GetBufferOffset: rank: %d comm's offset: %d numByters in buffer: %d, long size: %ld\n", my_pe, currentOffset, *numBytes, sizeof(long));
+	mlog(MPI_DBG, "GetBufferOffset: rank: %d numByters in buffer: %d, long size: %ld\n", my_pe, *numBytes, sizeof(long));
+
+	bufferPtr = &(((void*)((MPID_Comm)*comm).bufferPtr)[newOffset]);
+
+	if (isMultiThreads){
+		pthread_mutex_unlock(&lockGetOffset);
+	}
 	
 	return bufferPtr;
 	
@@ -431,7 +460,7 @@ int MPI_Bcast ( void *source, int count, MPI_Datatype dataType, int root, MPI_Co
 	void *symSource;
 	void *destBuffer;
 	int  createSymSource;
-	//int	 offset;
+	int  numBytes;
 
 	if (comm == NULL) {
 		mlog(MPI_ERR, "Invalid communicator.\n");
@@ -449,21 +478,22 @@ int MPI_Bcast ( void *source, int count, MPI_Datatype dataType, int root, MPI_Co
 	
 	if ( !shmem_addr_accessible( source, my_pe) ) {
 		// Okay, try to find a work around
-		//printf("MPI_Bcast::Buffer is not in a symmetric segment, pe: %d\n", my_pe);
+		printf("MPI_Bcast::Buffer is not in a symmetric segment, pe: %d\n", my_pe);
 		mlog(MPI_DBG, "Debug: Buffer is not in a symmetric segment, %d\n", my_pe);
 		
 		symSource = ((void*)((MPID_Comm)*comm).bufferPtr);
 		
 		// Move user's source into the symmetric buffer, since they can't create one.
 		CopyMyData( symSource, source, count, dataType);
-#ifdef DEBUG
-		/**for (i=0; i<count; i++){
-			printf("MPI_Bcast: rank: %d symSource: %ld\n", my_pe, ((long*)symSource)[i]);
-		}**/
-#endif
 		
+#ifdef DEBUG
+		/**/for (i=0; i<count; i++){
+			printf("MPI_Bcast: rank: %d symSource: %ld\n", my_pe, ((long*)symSource)[i]);
+		}/**/
+#endif
 		// Make the destination start at an offset:
-		destBuffer = GetBufferOffset( count, dataType, comm );
+		numBytes = 0;
+		destBuffer = GetBufferOffset( count, &numBytes, dataType, comm );
 		
 		createSymSource = TRUE;
 	}
@@ -492,13 +522,15 @@ int MPI_Bcast ( void *source, int count, MPI_Datatype dataType, int root, MPI_Co
 		else 
 			CopyMyData(source, destBuffer, count, dataType);
 	}
+	
+	// Re-set the comm's offset.  We are finished using the buffer.
 
 #ifdef DEBUG
 	for (i = 0; i < count; i++){
 		mlog(MPI_DBG, "MPI_Bcast1: rank: %-8d source: %ld\n", my_pe, ((long*)source)[i]); 
-		//printf("MPI_Bcast1: rank: %-8d source: %ld\n", my_pe, ((long*)source)[i]);
-		//if (!createSymSource) 
-		//	printf("MPI_Bcast1: rank: %-8d bufferPtr: %ld\n", my_pe, ((long*)((MPID_Comm)*comm).bufferPtr)[i]);
+		printf("MPI_Bcast1: rank: %-8d source: %ld\n", my_pe, ((long*)source)[i]);
+		if (!createSymSource) 
+			printf("MPI_Bcast1: rank: %-8d bufferPtr: %ld\n", my_pe, ((long*)((MPID_Comm)*comm).bufferPtr)[i]);
 	}
 #endif
 
@@ -553,6 +585,9 @@ int MPI_Comm_create (MPI_Comm comm, MPI_Group group, MPI_Comm *newcomm){
 		sharedBuffer = (void *)shmalloc(sizeof(char) * MAX_BUFFER_SIZE);
 		if (sharedBuffer == NULL ){
 			mlog(MPI_ERR, "MPI_Comm_create:: PE: %d, could not shmalloc space for symmetric memory.\n", my_pe);
+			if (isMultiThreads){
+				pthread_mutex_unlock(&lockCommCreate);
+			}
 			return MPI_ERR_NO_MEM;
 		}
 		
@@ -560,6 +595,9 @@ int MPI_Comm_create (MPI_Comm comm, MPI_Group group, MPI_Comm *newcomm){
 			mlog(MPI_DBG, "MPI_Comm_create::Buffer is in a symmetric segment for target pe: %d\n", my_pe);
 		}else{
 			mlog(MPI_ERR, "MPI_Comm_create::Buffer is NOT in a symmetric segment for target pe: %d\n", my_pe);
+			if (isMultiThreads){
+				pthread_mutex_unlock(&lockCommCreate);
+			}
 			return MPI_ERR_BUFFER;
 		}
 		
@@ -567,16 +605,25 @@ int MPI_Comm_create (MPI_Comm comm, MPI_Group group, MPI_Comm *newcomm){
 		*newcomm = (MPI_Comm)shmalloc( sizeof(MPID_Comm) );
 		if (*newcomm == NULL ){
 			mlog(MPI_ERR, "MPI_Comm_create:: PE: %d, could not shmalloc space for a new communicator.\n", my_pe);
+			if (isMultiThreads){
+				pthread_mutex_unlock(&lockCommCreate);
+			}
 			return MPI_ERR_NO_MEM;
 		}
 		groupPtr = (MPID_Group *)shmalloc(sizeof(MPID_Group));
 		if (groupPtr == NULL ){
 			mlog(MPI_ERR, "MPI_Comm_create:: PE: %d, could not shmalloc space for MPID_Group.\n", my_pe);
+			if (isMultiThreads){
+				pthread_mutex_unlock(&lockCommCreate);
+			}
 			return MPI_ERR_NO_MEM;
 		}
 		pesGroupPtr = (int *)shmalloc(sizeof(int) * npes);
 		if (pesGroupPtr == NULL ){
 			mlog(MPI_ERR, "MPI_Comm_create:: PE: %d, could not shmalloc space for MPID_Group.pesInGroup.\n", my_pe);
+			if (isMultiThreads){
+				pthread_mutex_unlock(&lockCommCreate);
+			}
 			return MPI_ERR_NO_MEM;
 		}
 		((MPID_Group)*groupPtr).rank    = group.rank;
@@ -644,6 +691,9 @@ int MPI_Comm_dup (MPI_Comm comm, MPI_Comm *newcomm){
 	sharedBuffer = (void *)shmalloc(sizeof(char) * MAX_BUFFER_SIZE);
 	if (sharedBuffer == NULL ){
 		mlog(MPI_ERR, "MPI_Comm_dup:: PE: %d, could not shmalloc space for symmetric memory.\n", my_pe);
+		if (isMultiThreads){
+			pthread_mutex_unlock(&lockCommDup);
+		}
 		return MPI_ERR_NO_MEM;
 	}
 	
@@ -651,6 +701,9 @@ int MPI_Comm_dup (MPI_Comm comm, MPI_Comm *newcomm){
 		mlog(MPI_DBG, "MPI_Comm_dup::Buffer is in a symmetric segment for target pe: %d\n", my_pe);
 	}else{
 		mlog(MPI_ERR, "MPI_Comm_dup::Buffer is NOT in a symmetric segment for target pe: %d\n", my_pe);
+		if (isMultiThreads){
+			pthread_mutex_unlock(&lockCommDup);
+		}
 		return MPI_ERR_BUFFER;
 	}
 	
@@ -658,11 +711,17 @@ int MPI_Comm_dup (MPI_Comm comm, MPI_Comm *newcomm){
 	*newcomm = (MPI_Comm)shmalloc( sizeof(MPID_Comm) );
 	if (*newcomm == NULL ){
 		mlog(MPI_ERR, "MPI_Comm_dup:: PE: %d, could not shmalloc space for a new communicator.\n", my_pe);
+		if (isMultiThreads){
+			pthread_mutex_unlock(&lockCommDup);
+		}
 		return MPI_ERR_NO_MEM;
 	}
 	groupPtr = (MPID_Group *)shmalloc(sizeof(MPID_Group));
 	if (groupPtr == NULL ){
 		mlog(MPI_ERR, "MPI_Comm_dup:: PE: %d, could not shmalloc space for MPID_Group.\n", my_pe);
+		if (isMultiThreads){
+			pthread_mutex_unlock(&lockCommDup);
+		}
 		return MPI_ERR_NO_MEM;
 	}
 	
@@ -675,6 +734,9 @@ int MPI_Comm_dup (MPI_Comm comm, MPI_Comm *newcomm){
 	pesGroupPtr = (int *)shmalloc(sizeof(int) * numRanks);
 	if (pesGroupPtr == NULL ){
 		mlog(MPI_ERR, "MPI_Comm_dup:: PE: %d, could not shmalloc space for MPID_Group.pesInGroup.\n", my_pe);
+		if (isMultiThreads){
+			pthread_mutex_unlock(&lockCommDup);
+		}
 		return MPI_ERR_NO_MEM;
 	}
 	
@@ -885,12 +947,18 @@ int MPI_Allgather (void *sendbuf, int sendcount, MPI_Datatype sendtype, void *re
 	// Verify that you have valid buffer pointer and space:
 	if ( (recvbuf == NULL) || (sendbuf == NULL) ){
 		mlog(MPI_ERR, "Error: buffer has an invalid pointer (it's NULL) PE: %d\n", my_pe);
+		if (isMultiThreads){
+			pthread_mutex_unlock(&lockAllGather);
+		}
 		return MPI_ERR_BUFFER;
 	}
 	
 	if ( !shmem_addr_accessible( recvbuf, my_pe) || !shmem_addr_accessible( sendbuf, my_pe) ) {
 		//printf("MPI_Allgather::Buffer is not in a symmetric segment, pe: %d\n", my_pe);
 		mlog(MPI_ERR, "Error: Buffer is not in a symmetric segment, %d\n", my_pe);
+		if (isMultiThreads){
+			pthread_mutex_unlock(&lockAllGather);
+		}
 		return MPI_ERR_BUFFER;
 	}
 	
@@ -918,6 +986,9 @@ int MPI_Allgather (void *sendbuf, int sendcount, MPI_Datatype sendtype, void *re
 	if ( isCollect32 == -1 ){
 		//printf("MPI_Allgather:: wrong datatype, can only handle integers.\n");
 		mlog(MPI_ERR, "Invalid datatype in sendtype, must be MPI_INT\n");
+		if (isMultiThreads){
+			pthread_mutex_unlock(&lockAllGather);
+		}
 		return MPI_ERR_TYPE;
 	}			
 	
@@ -982,12 +1053,18 @@ int MPI_Gather (void *sendbuf, int sendcount, MPI_Datatype sendtype, void *recvb
 	// Verify that you have valid buffer pointer and space:
 	if ( (recvbuf == NULL) || (sendbuf == NULL) ){
 		mlog(MPI_ERR, "Error: buffer has an invalid pointer (it's NULL) PE: %d\n", my_pe);
+		if (isMultiThreads){
+			pthread_mutex_unlock(&lockGather);
+		}
 		return MPI_ERR_BUFFER;
 	}
 	
 	if ( !shmem_addr_accessible( recvbuf, my_pe) || !shmem_addr_accessible( sendbuf, my_pe) ) {
 		//printf("MPI_Gather::Buffer is not in a symmetric segment, pe: %d\n", my_pe);
 		mlog(MPI_ERR, "Error: Buffer is not in a symmetric segment, %d\n", my_pe);
+		if (isMultiThreads){
+			pthread_mutex_unlock(&lockGather);
+		}
 		return MPI_ERR_BUFFER;
 	}
 
@@ -1082,17 +1159,26 @@ int MPI_Gatherv (void *sendbuf, int sendcount, MPI_Datatype sendtype, void *recv
 	// Verify that you have valid buffer pointer and space:
 	if ( (recvbuf == NULL) || (sendbuf == NULL) ){
 		mlog(MPI_ERR, "Error: buffer has an invalid pointer (it's NULL) PE: %d\n", my_pe);
+		if (isMultiThreads){
+			pthread_mutex_unlock(&lockGatherV);
+		}
 		return MPI_ERR_BUFFER;
 	}
 	
 	if ( !shmem_addr_accessible( recvbuf, my_pe) || !shmem_addr_accessible( sendbuf, my_pe) ) {
 		//printf("MPI_Gather::Buffer is not in a symmetric segment, pe: %d\n", my_pe);
 		mlog(MPI_ERR, "Error: Buffer is not in a symmetric segment, pe: %d\n", my_pe);
+		if (isMultiThreads){
+			pthread_mutex_unlock(&lockGatherV);
+		}
 		return MPI_ERR_BUFFER;
 	}
 	// Need to check the sendcount not larger than recvcount...
 	if (sendcount < recvcount[my_pe]){
 		mlog(MPI_ERR, "Error: send buffer is smaller than number of items requested, pe: %d\n", my_pe);
+		if (isMultiThreads){
+			pthread_mutex_unlock(&lockGatherV);
+		}
 		return MPI_ERR_SIZE;
 	}
 
@@ -1175,6 +1261,9 @@ int MPI_Group_incl (MPI_Group group, int n, int *ranks, MPI_Group *newgroup){
 	pesGroupPtr = (int *)shmalloc(sizeof(int) * n);
 	if (pesGroupPtr == NULL ){
 		mlog(MPI_ERR, "MPI_Group_incl:: PE: %d, could not shmalloc space for MPI_Group's rank array.\n", my_pe);
+		if (isMultiThreads){
+			pthread_mutex_unlock(&lockGroupIncl);
+		}
 		return MPI_ERR_NO_MEM;
 	}
 	for (i = 0; i < n; i++){
@@ -1241,6 +1330,9 @@ int MPI_Recv (void *buf, int count, MPI_Datatype datatype, int source, int tag, 
 	if (recv_buf == NULL){
 	  ret = MPI_ERR_BUFFER;// some sort of proper error here
 		mlog(MPI_DBG, "Error: No symmetric memory for PE: %d\n", my_pe);
+		if (isMultiThreads){
+			pthread_mutex_unlock(&lockRecv);
+		}
 		return ret;
 	}
 	else {
@@ -1332,6 +1424,9 @@ int MPI_Send (void *buf, int count, MPI_Datatype datatype, int dest, int tag, MP
 	if (recv_buf == NULL){
 		ret = MPI_ERR_BUFFER;// some sort of proper error here
 		mlog(MPI_DBG, "Error: No symmetric memory for PE: %d\n", my_pe);
+		if (isMultiThreads){
+			pthread_mutex_unlock(&lockSend);
+		}
 		return ret;
 	}
 	else {
@@ -1428,6 +1523,9 @@ int MPI_Irecv (void *buf, int count, MPI_Datatype datatype, int source, int tag,
 	if (recv_buf == NULL){
 		ret = MPI_ERR_BUFFER;// some sort of proper error here
 		mlog(MPI_DBG, "Error: No symmetric memory for PE: %d\n", my_pe);
+		if (isMultiThreads){
+			pthread_mutex_unlock(&lockIRecv);
+		}
 		return ret;
 	}
 	else {
@@ -1534,6 +1632,9 @@ int MPI_Isend(void *buf, int count, MPI_Datatype datatype, int dest, int tag, MP
 	if (recv_buf == NULL){
 		ret = MPI_ERR_BUFFER;// some sort of proper error here
 		mlog(MPI_DBG, "Error: No symmetric memory for PE: %d\n", my_pe);
+		if (isMultiThreads){
+			pthread_mutex_unlock(&lockISend);
+		}
 		return ret;
 	}
 	else {
@@ -1679,6 +1780,9 @@ int MPI_Unpack (void *inbuf, int insize, int *position, void *outbuf, int outcou
 	totalNumBytes = numBytes + *position;
 	if (totalNumBytes > insize) {
 		mlog(MPI_DBG,"MPI_Unpack:: PE: %d total bytes is larger (%d) than buffer size (%d).\n", my_pe, totalNumBytes, insize);
+		if (isMultiThreads){
+			pthread_mutex_unlock(&lockUnpack);
+		}
 		return MPI_ERR_NO_SPACE;
 	}
 	
@@ -1777,6 +1881,9 @@ int MPI_Pack(void *inbuf, int incount, MPI_Datatype datatype, void *outbuf, int 
 	if (totalNumBytes > outsize) {
 		mlog(MPI_ERR,"MPI_Pack::, pe: %d total bytes is larger (%d) than buffer size (%d).\n", my_pe, totalNumBytes, outsize);
 		printf("MPI_Pack::, pe: %d total bytes is larger (%d) than buffer size (%d).\n", my_pe, totalNumBytes, outsize);
+		if (isMultiThreads){
+			pthread_mutex_unlock(&lockPack);
+		}
 		return MPI_ERR_NO_SPACE;
 	}
 	

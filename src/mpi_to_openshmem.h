@@ -112,7 +112,17 @@ typedef struct MPID_Comm {
     int				size;		 /* Value of MPI_Comm_size for local group */
     MPID_Group		*groupPtr;   /* Groups in communicator. */
 	void			*bufferPtr;
-	int				offset;      /* offset into the buffer - placeholder. */
+	int				offset;      /* offset of the number of bytes into the buffer - placeholder. */
+	/*****
+	 *  This really need to be a structure that is growing:
+	 *
+	 *	startBufIndex
+	 *  numBytes
+	 *  endBufIndex  - just as a double check..
+	 *  command?  I'm debating about this.  Is it really useful?
+	 *
+	 *  what about occassional garbage collecting? Do you want to clean up, or assuming everything is just prefect?
+	 *******/
 } MPID_Comm;
 
 typedef struct MPID_Request{
@@ -132,6 +142,8 @@ MPI_Comm MPI_COMM_WORLD;			/* Communicator handles are pointers to structures...
  * OpenShmem does not support multithreads.
  */
 int isMultiThreads;
+pthread_mutex_t	lockGetOffset;
+pthread_mutex_t	lockCopyData;
 pthread_mutex_t	lockAbort;
 pthread_mutex_t	lockBarrier;
 pthread_mutex_t	lockBcast;
