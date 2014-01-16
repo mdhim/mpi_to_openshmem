@@ -1,14 +1,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <shmem.h>
-#include "mpi_to_openshmem.h"
+//#include "mpi_to_openshmem.h"
 
 
 long pSync[_SHMEM_BCAST_SYNC_SIZE];
 
 void initOpenShmem(){
-	printf ("initOpenShmem.\n");
-		
 	start_pes (0);
 
 	int rank = _my_pe ();

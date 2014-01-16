@@ -22,7 +22,9 @@ int main(int argc, char *argv[])
   int i, value;
   char c[MAX_CHAR_SIZE];
   char rcv[MAX_CHAR_SIZE];
-  static char buffer[BUF_SIZE];
+  char *buffer;
+  //works:  static char buffer[BUF_SIZE];
+  // Doesn't work: char buffer[BUF_SIZE];
   int position;
   MPI_Status status;
   
@@ -34,12 +36,14 @@ int main(int argc, char *argv[])
   
   MPI_Comm_size(MPI_COMM_WORLD, &size);
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+
+  buffer = (char *)shmalloc(BUF_SIZE * sizeof(char));
   
   // Initialize values:
   value = 2222;
   for (i = 0; i<MAX_CHAR_SIZE; i++){
     c[i] = 'a' + i;
-    buffer[i] = 'A' + i;
+    //((char)*buffer)[i] = 'A' + i;
     rcv[i] = 'A';
   }
 
@@ -47,19 +51,21 @@ int main(int argc, char *argv[])
 
   // Pack:
   MPI_Pack( &value, 1, MPI_INT, buffer, BUF_SIZE, &position, MPI_COMM_WORLD);
+  printf("\nthree After MPI_Pack:: ");
   MPI_Pack( c, MAX_CHAR_SIZE, MPI_CHAR, buffer, BUF_SIZE, &position, MPI_COMM_WORLD);
-  
+  printf("\nfour After MPI_Pack:: ");  
   // Send
   MPI_Send(buffer, position, MPI_PACKED, 1, 0, MPI_COMM_WORLD);
-  
+  printf("\nfive After MPI_Pack:: ");
   // Corresponding Receive
   MPI_Recv(buffer, BUF_SIZE, MPI_PACKED, 1, 0, MPI_COMM_WORLD, &status);
-  
+  printf("\nsix After MPI_Recv:: ");
   // And Unpack:
   position = 0;
   MPI_Unpack(buffer, BUF_SIZE, &position, &i, 1, MPI_INT, MPI_COMM_WORLD );
+  printf("\n7 after Unpack:: ");
   MPI_Unpack(buffer, BUF_SIZE, &position, rcv, MAX_CHAR_SIZE, MPI_CHAR, MPI_COMM_WORLD );
-  
+  printf("\n8 after Unpack:: ");  
   if (i != value){
     printf("PE: %d, Incorrect value: %d should be %d \n", rank, i, value );
   }else {
