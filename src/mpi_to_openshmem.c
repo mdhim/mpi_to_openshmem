@@ -284,14 +284,12 @@ int CopyMyData( void *toBuf, void *fromBuf, int count, MPI_Datatype dataType ){
 
 	int i, my_pe;
 	int ret;
+	int numBytes;
 
 	if (isMultiThreads){
 		pthread_mutex_lock(&lockCopyData);
 	}
 	
-	printf("CopyMyData:: starting...\n");
-
-
 	ret = MPI_SUCCESS;
 	my_pe = shmem_my_pe();
 	
@@ -299,54 +297,47 @@ int CopyMyData( void *toBuf, void *fromBuf, int count, MPI_Datatype dataType ){
 		case MPI_CHAR:
 		case MPI_UNSIGNED_CHAR:
 		case MPI_BYTE:
-			for (i=0; i<count; i++){
-				((char*)toBuf)[i] = ((char*)fromBuf)[i];
-			}
+			numBytes = count * sizeof(char);
 			break;
 		case MPI_SHORT:
 		case MPI_UNSIGNED_SHORT:
-			for (i=0; i<count; i++){
-				((short*)toBuf)[i] = ((short*)fromBuf)[i];
-			}
+			numBytes = count * sizeof(short);
 			break;
 		case MPI_INT:
 		case MPI_UNSIGNED:
-			for (i=0; i<count; i++){
-				((int*)toBuf)[i] = ((int*)fromBuf)[i];
-			}
+			numBytes = count * sizeof(int);
 			break;
 		case MPI_LONG:
 		case MPI_UNSIGNED_LONG:
-			/* doesn't work: memcpy((long*)toBuf, (long*)fromBuf, count);*/
-			for (i=0; i<count; i++){
-				((long*)toBuf)[i] = ((long*)fromBuf)[i];
-				printf("MPI_Bcast: my pe: %-8d symSource: %ld\n", my_pe, ((long*)toBuf)[i]);
-			}
+			numBytes = count * sizeof(long);
 			break;
 		case MPI_FLOAT:
-			for (i=0; i<count; i++){
-				((float*)toBuf)[i] = ((float*)fromBuf)[i];
-			}
+			numBytes = count * sizeof(float);
 			break;
 		case MPI_DOUBLE:
-			for (i=0; i<count; i++){
-				((double*)toBuf)[i] = ((double*)fromBuf)[i];
-			}
+			numBytes = count * sizeof(double);
 			break;
 		case MPI_LONG_DOUBLE:
-			for (i=0; i<count; i++){
-				((long double*)toBuf)[i] = ((long double*)fromBuf)[i];
-			}
+			numBytes = count * sizeof(long double);
 			break;
 		case MPI_LONG_LONG:
-			for (i=0; i<count; i++){
-				((long long*)toBuf)[i] = ((long long*)fromBuf)[i];
-			}
+			numBytes = count * sizeof(long long);
 			break;
 		default:
+			numBytes = count * sizeof(char);
 			ret = MPI_ERR_TYPE;
 			break;
 	}
+
+	
+	memcpy((long*)toBuf, (long*)fromBuf, numBytes);
+	
+	/*
+	for (i=0; i<count; i++){
+		printf("MPI_Bcast: my pe: %-8d symSource: %ld\n", my_pe, ((long*)toBuf)[i]);
+	}
+	 */
+	
 	if (isMultiThreads){
 		pthread_mutex_unlock(&lockCopyData);
 	}
@@ -422,7 +413,7 @@ void *GetBufferOffset( int count, int *numBytes, MPI_Datatype dataType,  MPI_Com
 	currentOffset = ((MPID_Comm)*comm).offset;
 	newOffset     = currentOffset + *numBytes;
 	
-	printf("GetBufferOffset: rank: %d comm's offset: %d numByters in buffer: %d, long size: %ld\n", my_pe, currentOffset, *numBytes, sizeof(long));
+	//printf("GetBufferOffset: rank: %d comm's offset: %d numByters in buffer: %d, long size: %ld\n", my_pe, currentOffset, *numBytes, sizeof(long));
 	mlog(MPI_DBG, "GetBufferOffset: rank: %d numByters in buffer: %d, long size: %ld\n", my_pe, *numBytes, sizeof(long));
 
 	bufferPtr = &(((void*)((MPID_Comm)*comm).bufferPtr)[newOffset]);
@@ -478,7 +469,7 @@ int MPI_Bcast ( void *source, int count, MPI_Datatype dataType, int root, MPI_Co
 	
 	if ( !shmem_addr_accessible( source, my_pe) ) {
 		// Okay, try to find a work around
-		printf("MPI_Bcast::Buffer is not in a symmetric segment, pe: %d\n", my_pe);
+		//printf("MPI_Bcast::Buffer is not in a symmetric segment, pe: %d\n", my_pe);
 		mlog(MPI_DBG, "Debug: Buffer is not in a symmetric segment, %d\n", my_pe);
 		
 		symSource = ((void*)((MPID_Comm)*comm).bufferPtr);
@@ -487,9 +478,9 @@ int MPI_Bcast ( void *source, int count, MPI_Datatype dataType, int root, MPI_Co
 		CopyMyData( symSource, source, count, dataType);
 		
 #ifdef DEBUG
-		/**/for (i=0; i<count; i++){
+		/**for (i=0; i<count; i++){
 			printf("MPI_Bcast: rank: %d symSource: %ld\n", my_pe, ((long*)symSource)[i]);
-		}/**/
+		}**/
 #endif
 		// Make the destination start at an offset:
 		numBytes = 0;
@@ -528,9 +519,9 @@ int MPI_Bcast ( void *source, int count, MPI_Datatype dataType, int root, MPI_Co
 #ifdef DEBUG
 	for (i = 0; i < count; i++){
 		mlog(MPI_DBG, "MPI_Bcast1: rank: %-8d source: %ld\n", my_pe, ((long*)source)[i]); 
-		printf("MPI_Bcast1: rank: %-8d source: %ld\n", my_pe, ((long*)source)[i]);
-		if (!createSymSource) 
-			printf("MPI_Bcast1: rank: %-8d bufferPtr: %ld\n", my_pe, ((long*)((MPID_Comm)*comm).bufferPtr)[i]);
+		//printf("MPI_Bcast1: rank: %-8d source: %ld\n", my_pe, ((long*)source)[i]);
+		//if (!createSymSource) 
+		//	printf("MPI_Bcast1: rank: %-8d bufferPtr: %ld\n", my_pe, ((long*)((MPID_Comm)*comm).bufferPtr)[i]);
 	}
 #endif
 
