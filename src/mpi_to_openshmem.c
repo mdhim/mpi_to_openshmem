@@ -31,6 +31,7 @@ int MPI_Init( int *argc, char ***argv ){
 	void       *sharedBuffer;
 	MPID_Group *groupPtr;
 	int		   *pesGroupPtr;
+	MemoryManager *memPtr;
 	
 	//Open mlog - stolen from plfs
 	ret = mlog_open((char *)"mpi_to_openshmem", 0, MLOG_CRIT, MLOG_CRIT, NULL, 0, MLOG_LOGPID, 0);
@@ -94,7 +95,24 @@ int MPI_Init( int *argc, char ***argv ){
 	for (i=0; i<npes; i++){
 		((MPID_Group)*groupPtr).pesInGroup[i] = i;
 	}
-		
+
+	// Now set-up the first memory management area:
+	memPtr = (MemoryManager*)shmalloc( sizeof(MemoryManager) );
+	if (memPtr == NULL ){
+		mlog(MPI_ERR, "MPI_Init_thread:: PE: %d, could not shmalloc space for Memory Management.\n", my_pe);
+		return MPI_ERR_NO_MEM;
+	}
+	
+	// Set-up start values:
+	((MemoryManager) *memPtr).previous = NULL;
+	((MemoryManager) *memPtr).next     = NULL;
+	((MemoryManager) *memPtr).startIndex = 0;
+	((MemoryManager) *memPtr).numBytes   = 0;
+	((MemoryManager) *memPtr).mpiCommand = NO_COMMAND;
+	
+	// Add to the comm:
+ 	((MPID_Comm) *MPI_COMM_WORLD).memManagerPtr = memPtr;
+	
 #ifdef DEBUG
 	int me = _my_pe();
 	printf("MPI_Init_Thread: Me: %d, MPI_COMM_WORLD.rank: %d, .size: %d\n", me,((MPID_Comm) *MPI_COMM_WORLD).rank,((MPID_Comm) *MPI_COMM_WORLD).size);
@@ -118,11 +136,12 @@ int MPI_Init( int *argc, char ***argv ){
  */
 
 int MPI_Init_thread( int *argc, char ***argv, int required, int *provided ){
-	int        i;
-	int		   ret = MPI_SUCCESS;
-	void       *sharedBuffer;
-	MPID_Group *groupPtr;
-	int		   *pesGroupPtr;
+	int          i;
+	int		     ret = MPI_SUCCESS;
+	void         *sharedBuffer;
+	MPID_Group   *groupPtr;
+	int		     *pesGroupPtr;
+	MemoryManager *memPtr;
 	
 	//Open mlog - stolen from plfs
 	ret = mlog_open((char *)"mpi_to_openshmem", 0, MLOG_CRIT, MLOG_CRIT, NULL, 0, MLOG_LOGPID, 0);
@@ -185,6 +204,23 @@ int MPI_Init_thread( int *argc, char ***argv, int required, int *provided ){
 	for (i=0; i<npes; i++){
 		((MPID_Group)*groupPtr).pesInGroup[i] = i;
 	}
+	
+	// Now set-up the first memory management area:
+	memPtr = (MemoryManager*)shmalloc( sizeof(MemoryManager) );
+	if (memPtr == NULL ){
+		mlog(MPI_ERR, "MPI_Init_thread:: PE: %d, could not shmalloc space for Memory Management.\n", my_pe);
+		return MPI_ERR_NO_MEM;
+	}
+	
+	// Set-up start values:
+	((MemoryManager) *memPtr).previous = NULL;
+	((MemoryManager) *memPtr).next     = NULL;
+	((MemoryManager) *memPtr).startIndex = 0;
+	((MemoryManager) *memPtr).numBytes   = 0;
+	((MemoryManager) *memPtr).mpiCommand = NO_COMMAND;
+	
+	// Add to the comm:
+ 	((MPID_Comm) *MPI_COMM_WORLD).memManagerPtr = memPtr;
 	
 		
 #ifdef DEBUG
@@ -282,7 +318,7 @@ int MPI_Barrier (MPI_Comm comm){
 
 int CopyMyData( void *toBuf, void *fromBuf, int count, MPI_Datatype dataType ){
 
-	int i, my_pe;
+	int my_pe;
 	int ret;
 	int numBytes;
 
@@ -330,9 +366,10 @@ int CopyMyData( void *toBuf, void *fromBuf, int count, MPI_Datatype dataType ){
 	}
 
 	
-	memcpy((long*)toBuf, (long*)fromBuf, numBytes);
+	memcpy(toBuf, fromBuf, numBytes);
 	
 	/*
+	int i;
 	for (i=0; i<count; i++){
 		printf("MPI_Bcast: my pe: %-8d symSource: %ld\n", my_pe, ((long*)toBuf)[i]);
 	}
@@ -363,7 +400,7 @@ int CopyMyData( void *toBuf, void *fromBuf, int count, MPI_Datatype dataType ){
 
 void *GetBufferOffset( int count, int *numBytes, MPI_Datatype dataType,  MPI_Comm comm){
 	
-	int i, my_pe;
+	int my_pe;
 	int currentOffset;
 	int newOffset;
 	void *bufferPtr;
@@ -544,11 +581,12 @@ int MPI_Bcast ( void *source, int count, MPI_Datatype dataType, int root, MPI_Co
  */
 int MPI_Comm_create (MPI_Comm comm, MPI_Group group, MPI_Comm *newcomm){
 
-	int        i;
-	void       *sharedBuffer;
-	MPID_Group *groupPtr;
-	int		   *pesGroupPtr;
-	int		   bIsPeInGroup = 0; // boolean to see if the current pe is in comm's group.
+	int          i;
+	void         *sharedBuffer;
+	MPID_Group   *groupPtr;
+	int		     *pesGroupPtr;
+	int		     bIsPeInGroup = 0; // boolean to see if the current pe is in comm's group.
+	MemoryManager *memPtr;
 
 	int npes =  _num_pes ();
 	int my_pe = shmem_my_pe();
@@ -635,6 +673,25 @@ int MPI_Comm_create (MPI_Comm comm, MPI_Group group, MPI_Comm *newcomm){
 			printf("MPI_Comm_create:: PE: %d, group[%d] = %d\n", my_pe, i, group.pesInGroup[i]);
 			((MPID_Group)*groupPtr).pesInGroup[i] = group.pesInGroup[i];
 		}
+
+		memPtr = (MemoryManager *)shmalloc(sizeof(MemoryManager));
+		if (memPtr == NULL ){
+			mlog(MPI_ERR, "MPI_Comm_create:: PE: %d, could not shmalloc space for MemoryManager.memPtr[0].\n", my_pe);
+			if (isMultiThreads){
+				pthread_mutex_unlock(&lockCommCreate);
+			}
+			return MPI_ERR_NO_MEM;
+		}
+
+		// Set-up start values. 
+		((MemoryManager) *memPtr).previous = NULL;
+		((MemoryManager) *memPtr).next     = NULL;
+		((MemoryManager) *memPtr).startIndex = 0;
+		((MemoryManager) *memPtr).numBytes   = 0;
+		((MemoryManager) *memPtr).mpiCommand = NO_COMMAND;
+		
+		// Add to the comm:
+		((MPID_Comm) *newCommStruct).memManagerPtr = memPtr;
 		
 		
 #ifdef DEBUG
@@ -660,13 +717,13 @@ int MPI_Comm_create (MPI_Comm comm, MPI_Group group, MPI_Comm *newcomm){
  * @return		   status
  */
 int MPI_Comm_dup (MPI_Comm comm, MPI_Comm *newcomm){
-	int        i;
-	void       *sharedBuffer;
-	MPID_Group *groupPtr;
-	int                *pesGroupPtr;
-	int                numRanks;
+	int           i;
+	void         *sharedBuffer;
+	MPID_Group   *groupPtr;
+	int          *pesGroupPtr;
+	int           numRanks;
+	MemoryManager *memPtr;
 	
-	int npes =  _num_pes ();
 	int my_pe = shmem_my_pe();
 	
 	if (comm == NULL) {
@@ -750,6 +807,16 @@ int MPI_Comm_dup (MPI_Comm comm, MPI_Comm *newcomm){
 		((MPID_Group)*groupPtr).pesInGroup[i] = ((MPID_Group)*origGroupPtr).pesInGroup[i];
 	}
 	
+	// Duplicate all of the memory management details:
+	// Notice: That the memory management data is not copied. 
+	((MemoryManager) *memPtr).previous = NULL;
+	((MemoryManager) *memPtr).next     = NULL;
+	((MemoryManager) *memPtr).startIndex = 0;
+	((MemoryManager) *memPtr).numBytes   = 0;
+	((MemoryManager) *memPtr).mpiCommand = NO_COMMAND;
+	
+	// Add to the comm:
+	((MPID_Comm) *newCommStruct).memManagerPtr = memPtr;
 	
 #ifdef DEBUG
 	printf("MPI_Comm_dup: PE: %d, newcomm.rank: %d, .size: %d\n", my_pe, ((MPID_Comm)**newcomm).rank, ((MPID_Comm)**newcomm).size);
@@ -775,9 +842,11 @@ int MPI_Comm_dup (MPI_Comm comm, MPI_Comm *newcomm){
 int MPI_Comm_free (MPI_Comm comm){
 	
 	int ret = MPI_SUCCESS;
-	int		   *pesGroupPtr;
-	MPID_Group *groupPtr;
-	void       *sharedBuffer;
+	int		      *pesGroupPtr;
+	MPID_Group    *groupPtr;
+	void          *sharedBuffer;
+	MemoryManager *memPtr, *lastPtr;
+	int			   isThereMore;
 	
 	if (comm == NULL) {
 		mlog(MPI_ERR, "Invalid communicator.\n");
@@ -791,11 +860,42 @@ int MPI_Comm_free (MPI_Comm comm){
 	// Start freeing the various parts of a comm.
 	groupPtr     = (MPID_Group *)(((MPID_Comm)*comm).groupPtr);
 	pesGroupPtr  = ((MPID_Group)*groupPtr).pesInGroup;
-	sharedBuffer = ((MPID_Comm)*comm).bufferPtr;
+	sharedBuffer = (void *)((MPID_Comm)*comm).bufferPtr;
+	memPtr       = (MemoryManager *)((MPID_Comm)*comm).memManagerPtr;
 	
 	shfree(pesGroupPtr);
 	shfree(groupPtr);
 	shfree(sharedBuffer);
+	
+	// Free all of the memory pointer (if there are more than one.
+	isThereMore = TRUE;
+	while (isThereMore) {
+		if ( ((MemoryManager)*memPtr).next == NULL ){
+			isThereMore = FALSE;
+			lastPtr = memPtr;
+			memPtr = ((MemoryManager)*memPtr).previous;
+			((MemoryManager)*memPtr).next = NULL;
+			shfree( lastPtr );
+		}
+		else {
+			memPtr = ((MemoryManager)*memPtr).next;
+		}
+	}
+	// Now I should be at the end of all of the memory pointers, no free those.
+	isThereMore = TRUE;
+	while (isThereMore) {
+		if ( ((MemoryManager)*memPtr).previous != NULL) {
+			lastPtr = memPtr;
+			memPtr = ((MemoryManager)*memPtr).previous;
+			shfree ( lastPtr );
+			
+			if (memPtr == NULL) {
+				isThereMore = FALSE;
+				shfree( memPtr );
+			}
+			isThereMore = FALSE;
+		}
+	}
 	
 	if (isMultiThreads){
 		pthread_mutex_unlock(&lockCommFree);
