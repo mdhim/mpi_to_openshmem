@@ -16,12 +16,6 @@
 #define DEST_SIZE 20
 #define SRC_SIZE   4
 
-//static long pSync[_SHMEM_BCAST_SYNC_SIZE];
-
-//static long src[4] = { 11, 12, 13, 14 };
-//static long dst[DST_SIZE];
-
-
 int me, npes;
 
 int main(int argc, char *argv[]){
@@ -36,8 +30,11 @@ int main(int argc, char *argv[]){
 		exit(1);
 	}
 	
+	// Test the various configurations:
+	//src = shmalloc ( SRC_SIZE  * sizeof(long) );
+	//dest = shmalloc ( DEST_SIZE * sizeof(long) );  
 	src = malloc ( SRC_SIZE  * sizeof(long) );
-	dest = malloc ( DEST_SIZE * sizeof(long) );  
+	dest = malloc ( DEST_SIZE * sizeof(long) );
 	
 	MPI_Comm_size(MPI_COMM_WORLD, &npes);
 	MPI_Comm_rank(MPI_COMM_WORLD, &me);
@@ -53,18 +50,12 @@ int main(int argc, char *argv[]){
 		src[1]=21;
 	}
 	
-	/*
-	 for (i = 0; i < _SHMEM_BCAST_SYNC_SIZE; i += 1)
-	 {
-	 pSync[i] = _SHMEM_SYNC_VALUE;
-	 }
-	 
-	 shmem_barrier_all ();
-	 
-	 shmem_fcollect64 (dst, src, me+1, 0, 0, npes, pSync);
-	 */
+	/* DEBUG:: *
+	 for (i = 0; i <SRC_SIZE; i++){
+	 printf ("rank: %d Src[%d] = %ld\n", me, i, src[i]);
+	 } **/
 	
-	MPI_Allgather( src, SRC_SIZE, MPI_INT, dest, DEST_SIZE, MPI_INT, MPI_COMM_WORLD); 
+	MPI_Allgather( src, SRC_SIZE, MPI_LONG, dest, DEST_SIZE, MPI_LONG, MPI_COMM_WORLD); 
 	show_dst ("AFTER", dest);
 	
 	return 0;
@@ -77,5 +68,7 @@ void show_dst (char *tag, long *dest){
 		printf (" %ld", dest[i]);
     }
 	printf ("\n");
+	
+	return;
 }
 
