@@ -369,13 +369,12 @@ int CopyMyData( void *toBuf, void *fromBuf, int count, MPI_Datatype dataType ){
 	memcpy(toBuf, fromBuf, numBytes);
 	
 	/**
-	shmem_barrier_all();
 	int i;
 	for (i=0; i<count; i++){
-		printf("CopyMyData: my pe: %-8d fromBuf: %ld, numBytes: %ld \n", my_pe, ((long*)fromBuf)[i], numBytes);
+		printf("CopyMyData: my pe: %-8d fromBuf: %ld, numBytes: %ld \n", my_pe, ((int*)fromBuf)[i], numBytes);
 	}
 	for (i=0; i<count; i++){
-		printf("CopyMyData: my pe: %-8d symSource: %ld\n", my_pe, ((long*)toBuf)[i]);
+		printf("CopyMyData: my pe: %-8d symSource: %ld\n", my_pe, ((int*)toBuf)[i]);
 	}
 	**/
 	
@@ -1023,7 +1022,6 @@ int MPI_Comm_size(MPI_Comm comm, int *size ){
 int MPI_Allgather (void *sendbuf, int sendcount, MPI_Datatype sendtype, void *recvbuf, int recvcount, MPI_Datatype recvtype, MPI_Comm comm){
 	int  i;
 	int  numPes, my_pe;
-	int  bytes;
 	int  numBytes;
 	int  createSymSend, createSymRecv;
 	void *symSend, *symRecv;
@@ -1152,7 +1150,6 @@ int MPI_Allgather (void *sendbuf, int sendcount, MPI_Datatype sendtype, void *re
 int MPI_Gather (void *sendbuf, int sendcount, MPI_Datatype sendtype, void *recvbuf, int recvcount, MPI_Datatype recvtype, int root, MPI_Comm comm){
 	//int i;
 	int numPes, my_pe;
-	int  bytes;
 	int  numBytes;
 	int  createSymSend, createSymRecv;
 	void *symSend, *symRecv;
@@ -1396,8 +1393,13 @@ int MPI_Gather (void *sendbuf, int sendcount, MPI_Datatype sendtype, void *recvb
  */
 int MPI_Gatherv (void *sendbuf, int sendcount, MPI_Datatype sendtype, void *recvbuf, int *recvcount, int *displs, MPI_Datatype recvtype, int root, MPI_Comm comm){
 
-	//int i;
+	int i;
 	int numPes, my_pe;	
+	int  numBytes;
+	int  createSymSend, createSymRecv;
+	void *symSend, *symRecv;
+	void *recvBufIndex;
+	int   totalNumSent;
 	
 	if (comm == NULL) {
 		mlog(MPI_ERR, "Invalid communicator.\n");
@@ -1419,15 +1421,59 @@ int MPI_Gatherv (void *sendbuf, int sendcount, MPI_Datatype sendtype, void *recv
 		}
 		return MPI_ERR_BUFFER;
 	}
-	
-	if ( !shmem_addr_accessible( recvbuf, my_pe) || !shmem_addr_accessible( sendbuf, my_pe) ) {
-		//printf("MPI_Gather::Buffer is not in a symmetric segment, pe: %d\n", my_pe);
-		mlog(MPI_ERR, "Error: Buffer is not in a symmetric segment, pe: %d\n", my_pe);
-		if (isMultiThreads){
-			pthread_mutex_unlock(&lockGatherV);
-		}
-		return MPI_ERR_BUFFER;
+		
+	// Check the send buffer, use work around if not symmetric
+	if ( !shmem_addr_accessible( sendbuf, my_pe) ) {
+		//printf("MPI_Gatherv::Send Buffer is not in a symmetric segment, pe: %d\n", my_pe);
+		mlog(MPI_DBG, "DEBUG: Send Buffer is not in a symmetric segment, %d\n", my_pe);
+		
+		symSend = ((void*)((MPID_Comm)*comm).bufferPtr);
+		
+		// Move user's source into the symmetric buffer, since they can't create one.
+		CopyMyData( symSend, sendbuf, sendcount, sendtype);
+		shmem_barrier_all ();
+		
+#ifdef DEBUG
+		/**for (i=0; i<sendcount; i++){
+			printf("MPI_Gatherv: rank: %d symSend: %ld, sendcount: %d\n", my_pe, ((int*)symSend)[i], sendcount);
+		}**/
+#endif
+		// Make the destination start at an offset:
+		numBytes = 0;
+		recvBufIndex = GetBufferOffset( sendcount, &numBytes, sendtype, comm );
+		
+		createSymSend = TRUE;
 	}
+	
+	// Figure out the total being sent to recv buffer:
+	totalNumSent = 0;
+	for (i=0; i<numPes; i++) {
+		totalNumSent = displs[i] + totalNumSent ;
+	}
+	
+	if ( !shmem_addr_accessible( recvbuf, my_pe) ) {
+		//printf("MPI_Gatherv::Recv Buffer is not in a symmetric segment, pe: %d\n", my_pe);
+		mlog(MPI_DBG, "DEBUG: Buffer is not in a symmetric segment, %d\n", my_pe);
+		
+		if ( recvBufIndex != NULL ){
+			symRecv = recvBufIndex;
+		}else {
+			symRecv = ((void*)((MPID_Comm)*comm).bufferPtr);
+		}
+		
+		// Move user's source into the symmetric buffer, since they can't create one.
+		CopyMyData( symRecv, recvbuf, totalNumSent, recvtype);
+		shmem_barrier_all ();
+		
+#ifdef DEBUG
+		/**for (i=0; i<recvcount[my_pe]; i++){
+			printf("MPI_Gatherv: rank: %d recvbuf: %ld, recvcount: %d, dataType = %d \n", my_pe, ((int*)recvbuf)[i], totalNumSent, recvtype);
+		}**/
+#endif
+		
+		createSymRecv = TRUE;
+	}
+
 	// Need to check the sendcount not larger than recvcount...
 	if (sendcount < recvcount[my_pe]){
 		mlog(MPI_ERR, "Error: send buffer is smaller than number of items requested, pe: %d\n", my_pe);
@@ -1442,49 +1488,170 @@ int MPI_Gatherv (void *sendbuf, int sendcount, MPI_Datatype sendtype, void *recv
 		case MPI_CHAR:
 		case MPI_UNSIGNED_CHAR:
 		case MPI_BYTE:
-			shmem_putmem(&(((char *)recvbuf)[displs[my_pe]]), sendbuf, recvcount[my_pe], root);
+			if ( !createSymSend && !createSymRecv ){
+				shmem_putmem(&(((char*)recvbuf)[displs[my_pe]]), sendbuf, recvcount[my_pe], root);
+			}
+			else if ( !createSymSend && createSymRecv ){
+				shmem_putmem(&(((char*)symRecv)[displs[my_pe]]), sendbuf, recvcount[my_pe], root);
+			}
+			else if ( createSymSend && !createSymRecv ){
+				shmem_putmem(&(((char*)recvbuf)[displs[my_pe]]), symSend, recvcount[my_pe], root);
+			}
+			else if ( createSymSend && createSymRecv ){
+				shmem_putmem(&(((char*)symRecv)[displs[my_pe]]), symSend, recvcount[my_pe], root);
+			}
 			break;
 		case MPI_SHORT:
 		case MPI_UNSIGNED_SHORT:
-			shmem_short_put(&(((short *)recvbuf)[displs[my_pe]]), sendbuf, recvcount[my_pe], root);
+			if ( !createSymSend && !createSymRecv ){
+				shmem_short_put(&(((short*)recvbuf)[displs[my_pe]]), sendbuf, recvcount[my_pe], root);
+			}
+			else if ( !createSymSend && createSymRecv ){
+				shmem_short_put(&(((short*)symRecv)[displs[my_pe]]), sendbuf, recvcount[my_pe], root);
+			}
+			else if ( createSymSend && !createSymRecv ){
+				shmem_short_put(&(((short*)recvbuf)[displs[my_pe]]), symSend, recvcount[my_pe], root);
+			}
+			else if ( createSymSend && createSymRecv ){
+				shmem_short_put(&(((short*)symRecv)[displs[my_pe]]), symSend, recvcount[my_pe], root);
+			}
 			break;
 		case MPI_INT:
 		case MPI_UNSIGNED:
-			shmem_int_put(&(((int *)recvbuf)[displs[my_pe]]), sendbuf, recvcount[my_pe], root);
-			/** debug
-			 if (my_pe == root){
-				printf ("gatherv - recvbuf[%d->%d] =", my_pe, root);
-				for (i = 0; i < 13; i++) {
-					printf (" %d", ((int *)recvbuf)[i]);
-				}
-				printf ("\n");
+			if ( !createSymSend && !createSymRecv ){
+				shmem_int_put(&(((int*)recvbuf)[displs[my_pe]]), sendbuf, recvcount[my_pe], root);
 			}
-			 **/
+			else if ( !createSymSend && createSymRecv ){
+				shmem_int_put(&(((int*)symRecv)[displs[my_pe]]), sendbuf, recvcount[my_pe], root);
+			}
+			else if ( createSymSend && !createSymRecv ){
+				shmem_int_put(&(((int*)recvbuf)[displs[my_pe]]), symSend, recvcount[my_pe], root);
+			}
+			else if ( createSymSend && createSymRecv ){
+				shmem_int_put(&(((int*)symRecv)[displs[my_pe]]), symSend, recvcount[my_pe], root);
+				/** debug **
+				 if (my_pe == root){
+				 printf ("gatherv - recvbuf[%d->%d] =", my_pe, root);
+				 for (i = 0; i < 13; i++) {
+				 printf (" %d", ((int *)symRecv)[i]);
+				 }
+				 printf ("\n");
+				 }
+				 **/
+			}
 			break;
 		case MPI_LONG:
 		case MPI_UNSIGNED_LONG:
-			shmem_long_put(&(((long *)recvbuf)[displs[my_pe]]), sendbuf, recvcount[my_pe], root);
+			if ( !createSymSend && !createSymRecv ){
+				shmem_long_put(&(((long*)recvbuf)[displs[my_pe]]), sendbuf, recvcount[my_pe], root);
+			}
+			else if ( !createSymSend && createSymRecv ){
+				shmem_long_put(&(((long*)symRecv)[displs[my_pe]]), sendbuf, recvcount[my_pe], root);
+			}
+			else if ( createSymSend && !createSymRecv ){
+				shmem_long_put(&(((long*)recvbuf)[displs[my_pe]]), symSend, recvcount[my_pe], root);
+			}
+			else if ( createSymSend && createSymRecv ){
+				shmem_long_put(&(((long*)symRecv)[displs[my_pe]]), symSend, recvcount[my_pe], root);
+			}
 			break;
 		case MPI_FLOAT:
-			shmem_float_put(&(((float *)recvbuf)[displs[my_pe]]), sendbuf, recvcount[my_pe], root);
+			if ( !createSymSend && !createSymRecv ){
+				shmem_float_put(&(((float*)recvbuf)[displs[my_pe]]), sendbuf, recvcount[my_pe], root);
+			}
+			else if ( !createSymSend && createSymRecv ){
+				shmem_float_put(&(((float*)symRecv)[displs[my_pe]]), sendbuf, recvcount[my_pe], root);
+			}
+			else if ( createSymSend && !createSymRecv ){
+				shmem_float_put(&(((float*)recvbuf)[displs[my_pe]]), symSend, recvcount[my_pe], root);
+			}
+			else if ( createSymSend && createSymRecv ){
+				shmem_float_put(&(((float*)symRecv)[displs[my_pe]]), symSend, recvcount[my_pe], root);
+			}
 			break;
 		case MPI_DOUBLE:
-			shmem_double_put(&(((double *)recvbuf)[displs[my_pe]]), sendbuf, recvcount[my_pe], root);
+			if ( !createSymSend && !createSymRecv ){
+				shmem_double_put(&(((double*)recvbuf)[displs[my_pe]]), sendbuf, recvcount[my_pe], root);
+			}
+			else if ( !createSymSend && createSymRecv ){
+				shmem_double_put(&(((double*)symRecv)[displs[my_pe]]), sendbuf, recvcount[my_pe], root);
+			}
+			else if ( createSymSend && !createSymRecv ){
+				shmem_double_put(&(((double*)recvbuf)[displs[my_pe]]), symSend, recvcount[my_pe], root);
+			}
+			else if ( createSymSend && createSymRecv ){
+				shmem_double_put(&(((double*)symRecv)[displs[my_pe]]), symSend, recvcount[my_pe], root);
+			}
 			break;
 		case MPI_LONG_DOUBLE:
-			shmem_longdouble_put(&(((long double *)recvbuf)[displs[my_pe]]), sendbuf, recvcount[my_pe], root);
+			if ( !createSymSend && !createSymRecv ){
+				shmem_longdouble_put(&(((long double*)recvbuf)[displs[my_pe]]), sendbuf, recvcount[my_pe], root);
+			}
+			else if ( !createSymSend && createSymRecv ){
+				shmem_longdouble_put(&(((long double*)symRecv)[displs[my_pe]]), sendbuf, recvcount[my_pe], root);
+			}
+			else if ( createSymSend && !createSymRecv ){
+				shmem_longdouble_put(&(((long double*)recvbuf)[displs[my_pe]]), symSend, recvcount[my_pe], root);
+			}
+			else if ( createSymSend && createSymRecv ){
+				shmem_longdouble_put(&(((long double*)symRecv)[displs[my_pe]]), symSend, recvcount[my_pe], root);
+			}
 			break;
 		case MPI_LONG_LONG:
-			shmem_longlong_put(&(((long long *)recvbuf)[displs[my_pe]]), sendbuf, recvcount[my_pe], root);
+			if ( !createSymSend && !createSymRecv ){
+				shmem_longlong_put(&(((long long*)recvbuf)[displs[my_pe]]), sendbuf, recvcount[my_pe], root);
+			}
+			else if ( !createSymSend && createSymRecv ){
+				shmem_longlong_put(&(((long long*)symRecv)[displs[my_pe]]), sendbuf, recvcount[my_pe], root);
+			}
+			else if ( createSymSend && !createSymRecv ){
+				shmem_longlong_put(&(((long long*)recvbuf)[displs[my_pe]]), symSend, recvcount[my_pe], root);
+			}
+			else if ( createSymSend && createSymRecv ){
+				shmem_longlong_put(&(((long long*)symRecv)[displs[my_pe]]), symSend, recvcount[my_pe], root);
+			}
 			break;
 		default:
-			shmem_putmem(&(((char *)recvbuf)[displs[my_pe]]), sendbuf, recvcount[my_pe], root);
+			if ( !createSymSend && !createSymRecv ){
+				shmem_putmem(&(((char*)recvbuf)[displs[my_pe]]), sendbuf, recvcount[my_pe], root);
+			}
+			else if ( !createSymSend && createSymRecv ){
+				shmem_putmem(&(((char*)symRecv)[displs[my_pe]]), sendbuf, recvcount[my_pe], root);
+			}
+			else if ( createSymSend && !createSymRecv ){
+				shmem_putmem(&(((char*)recvbuf)[displs[my_pe]]), symSend, recvcount[my_pe], root);
+			}
+			else if ( createSymSend && createSymRecv ){
+				shmem_putmem(&(((char*)symRecv)[displs[my_pe]]), symSend, recvcount[my_pe], root);
+			}
 			break;
 	}
 	
 	// and to be on the safe side:
+	shmem_fence ();
 	shmem_barrier_all ();
 	
+	// if receive symmetric buffer was not created, there's nothing to transfer. The data is there...
+	if ( (my_pe == root) && createSymRecv){ 
+
+		CopyMyData(recvbuf, symRecv, totalNumSent, MPI_INT);
+		
+		/** debug **
+		if (my_pe == root){
+			printf ("MPI_Gatherv - recvbuf[%d->%d] =", my_pe, root);
+			for (i = 0; i < count; i++) {
+				printf (" %d", ((int *)symRecv)[i]);
+				//((int *)recvbuf)[i] =  ((int *)symRecv)[i];
+			}
+			printf ("\n");
+			for (i = 0; i < count; i++) {
+				printf (" %d", ((int *)recvbuf)[i]);
+			}
+			printf ("\n");
+		}
+		**/
+	}
+
 	if (isMultiThreads){
 		pthread_mutex_unlock(&lockGatherV);
 	}
@@ -1868,9 +2035,14 @@ int MPI_Irecv (void *buf, int count, MPI_Datatype datatype, int source, int tag,
  */
 int MPI_Isend(void *buf, int count, MPI_Datatype datatype, int dest, int tag, MPI_Comm comm, MPI_Request *request){
 	
-	int  ret;
-	int my_pe;
-	void *recv_buf;
+	int   my_pe;
+	int   i;
+	int	  numBytes;
+	void *symRecvBuf;
+	void *recvBufIndex;
+	void *symSendBuf;
+	void *symBufIndex;
+	int   createSymSend;
 	
 	if (comm == NULL) {
 		mlog(MPI_ERR, "Invalid communicator.\n");
@@ -1882,25 +2054,41 @@ int MPI_Isend(void *buf, int count, MPI_Datatype datatype, int dest, int tag, MP
 	}
 	
 	my_pe = shmem_my_pe();
-	recv_buf = ((MPID_Comm)*comm).bufferPtr;
-	
-	if (recv_buf == NULL){
-		ret = MPI_ERR_BUFFER;// some sort of proper error here
+	symRecvBuf     = ((MPID_Comm)*comm).bufferPtr;
+	recvBufIndex = GetBufferOffset( count, &numBytes, datatype, comm );
+
+	if (symRecvBuf == NULL){
 		mlog(MPI_DBG, "Error: No symmetric memory for PE: %d\n", my_pe);
 		if (isMultiThreads){
 			pthread_mutex_unlock(&lockISend);
 		}
-		return ret;
+		return MPI_ERR_BUFFER;
 	}
-	else {
-		ret = MPI_SUCCESS;
-	}
-	mlog(MPI_DBG,"MPI_Isend: PE: %d, recv_buffer Addr = %x\n", my_pe, recv_buf);
 	
-	if (shmem_addr_accessible( recv_buf, my_pe) ) {
-		 mlog(MPI_DBG,"MPI_Isend::Buffer is in a symmetric segment, pe: %d\n", my_pe);
-	}else{
-		mlog(MPI_DBG,"MPI_Isend::Buffer is NOT in a symmetric segment, pe: %d\n", my_pe);
+	mlog(MPI_DBG,"MPI_Isend: PE: %d, symRecvBuf Addr = %x\n", my_pe, symRecvBuf);
+	
+	// Check the send buffer, use work around if not symmetric
+	createSymSend = FALSE;
+	
+	if ( !shmem_addr_accessible( buf, my_pe) ) {
+		//printf("MPI_Isend::Buffer is not in a symmetric segment, pe: %d\n", my_pe);
+		mlog(MPI_DBG, "DEBUG: Buffer is not in a symmetric segment, %d\n", my_pe);
+		
+		symSendBuf = recvBufIndex;
+
+		// Move user's source into the symmetric buffer, since they can't create one.
+		CopyMyData( symSendBuf, buf, count, datatype);
+		
+#ifdef DEBUG
+		/**for (i=0; i<count; i++){
+		 printf("MPI_Isend: rank: %d symBuf: %ld, count: %d\n", my_pe, ((long*)symSendBuf)[i], count);
+		 }**/
+#endif
+		// Make the destination start at an offset:
+		numBytes = 0;
+		symBufIndex = GetBufferOffset( count, &numBytes, datatype, comm );
+		
+		createSymSend = TRUE;
 	}
 
 	// In Request, put the expected last value:
@@ -1911,51 +2099,98 @@ int MPI_Isend(void *buf, int count, MPI_Datatype datatype, int dest, int tag, MP
 		case MPI_CHAR:
 		case MPI_UNSIGNED_CHAR:
 		case MPI_BYTE:
-			shmem_putmem(recv_buf, buf, count, dest);
+			if (createSymSend){
+				shmem_putmem(symRecvBuf, symSendBuf, count, dest);
+			}
+			else {
+				shmem_putmem(symRecvBuf, buf, count, dest);
+			}
 			break;
 		case MPI_SHORT:
 		case MPI_UNSIGNED_SHORT:
-			shmem_short_put(recv_buf, buf, count, dest);
+			if (createSymSend){
+				shmem_short_put(symRecvBuf, symSendBuf, count, dest);
+			}
+			else {
+				shmem_short_put(symRecvBuf, buf, count, dest);
+			}
 			break;
 		case MPI_INT:
 		case MPI_UNSIGNED:
-			shmem_int_put(recv_buf, buf, count, dest);
+			if (createSymSend){
+				shmem_int_put(symRecvBuf, symSendBuf, count, dest);
+			}
+			else {
+				shmem_int_put(symRecvBuf, buf, count, dest);
+			}
 			break;
 		case MPI_LONG:
 		case MPI_UNSIGNED_LONG:
-			shmem_long_put(recv_buf, buf, count, dest);
+			if (createSymSend){
+				shmem_long_put(symRecvBuf, symSendBuf, count, dest);
+			}
+			else {
+				shmem_long_put(symRecvBuf, buf, count, dest);
+			}
 			break;
 		case MPI_FLOAT:
-			shmem_float_put(recv_buf, buf, count, dest);
+			if (createSymSend){
+				shmem_float_put(symRecvBuf, symSendBuf, count, dest);
+			}
+			else {
+				shmem_float_put(symRecvBuf, buf, count, dest);
+			}
 			break;
 		case MPI_DOUBLE:
-			shmem_double_put(recv_buf, buf, count, dest);
+			if (createSymSend){
+				shmem_double_put(symRecvBuf, symSendBuf, count, dest);
+			}
+			else {
+				shmem_double_put(symRecvBuf, buf, count, dest);
+			}
 			break;
 		case MPI_LONG_DOUBLE:
-			shmem_longdouble_put(recv_buf, buf, count, dest);
+			if (createSymSend){
+				shmem_longdouble_put(symRecvBuf, symSendBuf, count, dest);
+			}
+			else {
+				shmem_longdouble_put(symRecvBuf, buf, count, dest);
+			}
 			break;
 		case MPI_LONG_LONG:
-			shmem_longlong_put(recv_buf, buf, count, dest);
+			if (createSymSend){
+				shmem_longlong_put(symRecvBuf, symSendBuf, count, dest);
+			}
+			else {
+				shmem_longlong_put(symRecvBuf, buf, count, dest);
+			}
 			break;
 		default:
-			shmem_putmem(recv_buf, buf, count, dest);
+			if (createSymSend){
+				shmem_putmem(symRecvBuf, symSendBuf, count, dest);
+			}
+			else {
+				shmem_putmem(symRecvBuf, buf, count, dest);
+			}
 			break;
 	}
 	
 	// Get the address (this is of the current PE)
-	(*request).lastBufPtr   = &((int *)recv_buf)[count-1];
+	(*request).lastBufPtr   = &((int *)symRecvBuf)[count-1];
 
 	// Set-up MPI_Request for MPI_Isend                                                                        
 	(*request).requestType = SEND_TYPE;
 	(*request).rank		   = dest;
 	(*request).dataType	   = datatype;
+	
+	// This routine needs to relinquish synSendBuf
 
 	//printf("MPI_Isend: PE: %d to PE: %d, sent: %d\n", my_pe, (*request).rank, ( (int *)(buf))[0] );
 	if (isMultiThreads){
 		pthread_mutex_unlock(&lockISend);
 	}
 
-	return ret;
+	return MPI_SUCCESS;
 }
 
 /**
@@ -1978,6 +2213,10 @@ int MPI_Unpack (void *inbuf, int insize, int *position, void *outbuf, int outcou
 	int totalNumBytes;
 	int my_pe;
 	int rank;
+	int i, createSymInbuf;
+	void *symInbuf;
+	void *symBufIndex;
+	int  numSymBytes;
 	
 	if (comm == NULL) {
 		mlog(MPI_ERR, "Invalid communicator.\n");
@@ -1989,9 +2228,37 @@ int MPI_Unpack (void *inbuf, int insize, int *position, void *outbuf, int outcou
 	}
 
 	totalNumBytes = 0;
+	numSymBytes   = 0;
 	my_pe         = shmem_my_pe();
 	
 	MPI_Comm_rank(comm, &rank);
+
+	createSymInbuf = FALSE;
+	if ( !shmem_addr_accessible( inbuf, my_pe) ) {
+		printf("MPI_Unpack::Buffer is not in a symmetric segment, pe: %d\n", my_pe);
+		mlog(MPI_DBG, "DEBUG: Buffer is not in a symmetric segment, %d\n", my_pe);
+		
+		symInbuf = ((MPID_Comm)*comm).bufferPtr;
+		
+		// Move user's source into the symmetric buffer, since they can't create one.
+		CopyMyData( symInbuf, inbuf, outcount, datatype);
+		
+#ifdef DEBUG
+		/**/for (i=0; i<insize; i++){
+		 printf("MPI_Unpack: rank: %d symOutBuf: %d, insize: %d\n", my_pe, ((int*)symInbuf)[i], insize);
+		 }/**/
+#endif
+		// Make the destination start at an offset:
+		symBufIndex = GetBufferOffset( outcount, &numSymBytes, datatype, comm );
+		
+		createSymInbuf = TRUE;
+	}
+	else {
+		/**/for (i=0; i<outcount; i++){
+			printf("MPI_Unpack: rank: %d inbuf: %d, insize: %d\n", my_pe, ((int*)inbuf)[i], insize);
+		}/**/
+	}
+
 	
 	// Figure out how many bytes the datatype has                                                                                
 	switch (datatype){
@@ -2043,9 +2310,15 @@ int MPI_Unpack (void *inbuf, int insize, int *position, void *outbuf, int outcou
 	
 	// Send inbuf to outbuf with an offset of position: 
 	//shmem_getmem(buf, recv_buf, count, source);
-	shmem_getmem( outbuf, &(((char *)inbuf)[*position]), numBytes, rank);
 	
-	// Don't forget to increment the position
+	if (createSymInbuf){
+		shmem_getmem( outbuf, symInbuf, numBytes, rank);
+	}
+	else {
+		shmem_getmem( outbuf, &(((char *)inbuf)[*position]), numBytes, rank);
+	}
+	
+	// Don't forget to increment the position, and fix the comm's pointers..
 	*position = *position + numBytes;
 	
 	if (isMultiThreads){
@@ -2075,6 +2348,12 @@ int MPI_Pack(void *inbuf, int incount, MPI_Datatype datatype, void *outbuf, int 
 	int totalNumBytes;
 	int my_pe;
 	int rank;
+	int i;
+	void *symOutbuf;
+	void *outBufIndex;
+	void *symInbuf;
+	int  numSymBytes;
+	int createSymOutbuf, createSymInbuf;
 	
 	if (comm == NULL) {
 		mlog(MPI_ERR, "Invalid communicator.\n");
@@ -2086,6 +2365,7 @@ int MPI_Pack(void *inbuf, int incount, MPI_Datatype datatype, void *outbuf, int 
 	}
 	
 	totalNumBytes = 0;
+	numSymBytes   = 0;
 	my_pe         = shmem_my_pe();
 	
 	MPI_Comm_rank(comm, &rank);
@@ -2126,11 +2406,11 @@ int MPI_Pack(void *inbuf, int incount, MPI_Datatype datatype, void *outbuf, int 
 			break;
 	}
 	
-	//mlog(MPI_DBG,"MPI_Pack, PE: %d, Number of bytes: %d, position: %d \n", my_pe, numBytes, *position);
-	//mlog(MPI_DBG,"MPI_Pack, PE: %d, inbuf: %c, outbuf: %c \n", rank, ((char *)inbuf)[*position], ((char *)outbuf)[0]);
-	printf("MPI_Pack, PE: %d, Number of bytes: %d, position: %d \n", my_pe, numBytes, *position);
-	printf("MPI_Pack, PE: %d, inbuf: %c, outbuf: %c \n", rank, ((char *)inbuf)[*position], ((char *)outbuf)[0]);
-	
+	mlog(MPI_DBG,"MPI_Pack, PE: %d, Number of bytes: %d, position: %d \n", my_pe, numBytes, *position);
+	mlog(MPI_DBG,"MPI_Pack, PE: %d, inbuf: %c, outbuf: %c \n", rank, ((char *)inbuf)[*position], ((char *)outbuf)[0]);
+	printf("MPI_PACK, PE: %d, numBytes: %d, position: %d \n", my_pe, numBytes, *position);
+	printf("MPI_Pack, PE: %d, inbuf: %d, outbuf: %c \n", rank, ((int *)inbuf)[*position], ((char *)outbuf)[0]);
+
 	// Check to see if there is enough space for the send:
 	totalNumBytes = numBytes + *position;
 	if (totalNumBytes > outsize) {
@@ -2142,9 +2422,37 @@ int MPI_Pack(void *inbuf, int incount, MPI_Datatype datatype, void *outbuf, int 
 		return MPI_ERR_NO_SPACE;
 	}
 	
+	// Check the send buffer, use work around if not symmetric
+	createSymOutbuf = FALSE;
+	if ( !shmem_addr_accessible( outbuf, my_pe) ) {
+		printf("MPI_Pack::Out Buffer is not in a symmetric segment, pe: %d\n", my_pe);
+		mlog(MPI_DBG, "DEBUG: Out Buffer is not in a symmetric segment, %d\n", my_pe);
+		
+		symOutbuf = ((void*)((MPID_Comm)*comm).bufferPtr);
+		
+		// Move user's source into the symmetric buffer, since they can't create one.
+		//CopyMyData( symOutbuf, outbuf, outsize, MPI_CHAR);
+		//shmem_barrier_all ();
+		
+#ifdef DEBUG
+		/**for (i=0; i<outsize; i++){
+		 printf("MPI_Pack: rank: %d symOutBuf: %ld, outsize: %d\n", my_pe, ((char*)symOutbuf)[i], outsize);
+		 }**/
+#endif
+		// Make the destination start at an offset:
+		outBufIndex = GetBufferOffset( outsize, &numSymBytes, MPI_CHAR, comm );
+		
+		createSymOutbuf = TRUE;
+	}
+		
 	// Send inbuf to outbuf with an offset of position:
-	shmem_putmem( &(((char *)outbuf)[*position]), inbuf, numBytes, rank);
-	
+	if (createSymOutbuf){
+		shmem_putmem( &(((char *)symOutbuf)[*position]), inbuf, numBytes, rank);
+	}
+	else {
+		shmem_putmem( &(((char *)outbuf)[*position]), inbuf, numBytes, rank);
+	}
+
 	// and to be on the safe side:
 	shmem_fence();
 	
