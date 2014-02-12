@@ -31,7 +31,6 @@ int MPI_Init( int *argc, char ***argv ){
 	void       *sharedBuffer;
 	MPID_Group *groupPtr;
 	int		   *pesGroupPtr;
-	MemoryManager *memPtr;
 	
 	//Open mlog - stolen from plfs
 	ret = mlog_open((char *)"mpi_to_openshmem", 0, MLOG_CRIT, MLOG_CRIT, NULL, 0, MLOG_LOGPID, 0);
@@ -95,23 +94,6 @@ int MPI_Init( int *argc, char ***argv ){
 	for (i=0; i<npes; i++){
 		((MPID_Group)*groupPtr).pesInGroup[i] = i;
 	}
-
-	// Now set-up the first memory management area:
-	memPtr = (MemoryManager*)shmalloc( sizeof(MemoryManager) );
-	if (memPtr == NULL ){
-		mlog(MPI_ERR, "MPI_Init_thread:: PE: %d, could not shmalloc space for Memory Management.\n", my_pe);
-		return MPI_ERR_NO_MEM;
-	}
-	
-	// Set-up start values:
-	((MemoryManager) *memPtr).previous = NULL;
-	((MemoryManager) *memPtr).next     = NULL;
-	((MemoryManager) *memPtr).startIndex = 0;
-	((MemoryManager) *memPtr).numBytes   = 0;
-	((MemoryManager) *memPtr).mpiCommand = NO_COMMAND;
-	
-	// Add to the comm:
- 	((MPID_Comm) *MPI_COMM_WORLD).memManagerPtr = memPtr;
 	
 #ifdef DEBUG
 	int me = _my_pe();
@@ -141,7 +123,6 @@ int MPI_Init_thread( int *argc, char ***argv, int required, int *provided ){
 	void         *sharedBuffer;
 	MPID_Group   *groupPtr;
 	int		     *pesGroupPtr;
-	MemoryManager *memPtr;
 	
 	//Open mlog - stolen from plfs
 	ret = mlog_open((char *)"mpi_to_openshmem", 0, MLOG_CRIT, MLOG_CRIT, NULL, 0, MLOG_LOGPID, 0);
@@ -204,24 +185,6 @@ int MPI_Init_thread( int *argc, char ***argv, int required, int *provided ){
 	for (i=0; i<npes; i++){
 		((MPID_Group)*groupPtr).pesInGroup[i] = i;
 	}
-	
-	// Now set-up the first memory management area:
-	memPtr = (MemoryManager*)shmalloc( sizeof(MemoryManager) );
-	if (memPtr == NULL ){
-		mlog(MPI_ERR, "MPI_Init_thread:: PE: %d, could not shmalloc space for Memory Management.\n", my_pe);
-		return MPI_ERR_NO_MEM;
-	}
-	
-	// Set-up start values:
-	((MemoryManager) *memPtr).previous = NULL;
-	((MemoryManager) *memPtr).next     = NULL;
-	((MemoryManager) *memPtr).startIndex = 0;
-	((MemoryManager) *memPtr).numBytes   = 0;
-	((MemoryManager) *memPtr).mpiCommand = NO_COMMAND;
-	
-	// Add to the comm:
- 	((MPID_Comm) *MPI_COMM_WORLD).memManagerPtr = memPtr;
-	
 		
 #ifdef DEBUG
 		int me = _my_pe();
@@ -589,7 +552,6 @@ int MPI_Comm_create (MPI_Comm comm, MPI_Group group, MPI_Comm *newcomm){
 	MPID_Group   *groupPtr;
 	int		     *pesGroupPtr;
 	int		     bIsPeInGroup = 0; // boolean to see if the current pe is in comm's group.
-	MemoryManager *memPtr;
 
 	int npes =  _num_pes ();
 	int my_pe = shmem_my_pe();
@@ -676,26 +638,6 @@ int MPI_Comm_create (MPI_Comm comm, MPI_Group group, MPI_Comm *newcomm){
 			printf("MPI_Comm_create:: PE: %d, group[%d] = %d\n", my_pe, i, group.pesInGroup[i]);
 			((MPID_Group)*groupPtr).pesInGroup[i] = group.pesInGroup[i];
 		}
-
-		memPtr = (MemoryManager *)shmalloc(sizeof(MemoryManager));
-		if (memPtr == NULL ){
-			mlog(MPI_ERR, "MPI_Comm_create:: PE: %d, could not shmalloc space for MemoryManager.memPtr[0].\n", my_pe);
-			if (isMultiThreads){
-				pthread_mutex_unlock(&lockCommCreate);
-			}
-			return MPI_ERR_NO_MEM;
-		}
-
-		// Set-up start values. 
-		((MemoryManager) *memPtr).previous = NULL;
-		((MemoryManager) *memPtr).next     = NULL;
-		((MemoryManager) *memPtr).startIndex = 0;
-		((MemoryManager) *memPtr).numBytes   = 0;
-		((MemoryManager) *memPtr).mpiCommand = NO_COMMAND;
-		
-		// Add to the comm:
-		((MPID_Comm) *newCommStruct).memManagerPtr = memPtr;
-		
 		
 #ifdef DEBUG
 		printf("MPI_Comm_Create: PE: %d, newcomm.rank: %d, .size: %d\n", my_pe, ((MPID_Comm)**newcomm).rank, ((MPID_Comm)**newcomm).size);
@@ -725,7 +667,6 @@ int MPI_Comm_dup (MPI_Comm comm, MPI_Comm *newcomm){
 	MPID_Group   *groupPtr;
 	int          *pesGroupPtr;
 	int           numRanks;
-	MemoryManager *memPtr;
 	
 	int my_pe = shmem_my_pe();
 	
@@ -809,18 +750,7 @@ int MPI_Comm_dup (MPI_Comm comm, MPI_Comm *newcomm){
 		printf("MPI_Comm_dup:: PE: %d, group[%d] = %d\n", my_pe, i, ((MPID_Group)*origGroupPtr).pesInGroup[i]);
 		((MPID_Group)*groupPtr).pesInGroup[i] = ((MPID_Group)*origGroupPtr).pesInGroup[i];
 	}
-	
-	// Duplicate all of the memory management details:
-	// Notice: That the memory management data is not copied. 
-	((MemoryManager) *memPtr).previous = NULL;
-	((MemoryManager) *memPtr).next     = NULL;
-	((MemoryManager) *memPtr).startIndex = 0;
-	((MemoryManager) *memPtr).numBytes   = 0;
-	((MemoryManager) *memPtr).mpiCommand = NO_COMMAND;
-	
-	// Add to the comm:
-	((MPID_Comm) *newCommStruct).memManagerPtr = memPtr;
-	
+		
 #ifdef DEBUG
 	printf("MPI_Comm_dup: PE: %d, newcomm.rank: %d, .size: %d\n", my_pe, ((MPID_Comm)**newcomm).rank, ((MPID_Comm)**newcomm).size);
 	mlog(MPI_DBG, "MPI_Comm_dup: Me: %d, newcomm.rank: %d, .size: %d, .bufferPtr: %x\n", my_pe, ((MPID_Comm)**newcomm).rank, ((MPID_Comm)**newcomm).size, ((MPID_Comm)**newcomm).bufferPtr);
@@ -848,8 +778,6 @@ int MPI_Comm_free (MPI_Comm comm){
 	int		      *pesGroupPtr;
 	MPID_Group    *groupPtr;
 	void          *sharedBuffer;
-	MemoryManager *memPtr, *lastPtr;
-	int			   isThereMore;
 	
 	if (comm == NULL) {
 		mlog(MPI_ERR, "Invalid communicator.\n");
@@ -864,42 +792,11 @@ int MPI_Comm_free (MPI_Comm comm){
 	groupPtr     = (MPID_Group *)(((MPID_Comm)*comm).groupPtr);
 	pesGroupPtr  = ((MPID_Group)*groupPtr).pesInGroup;
 	sharedBuffer = (void *)((MPID_Comm)*comm).bufferPtr;
-	memPtr       = (MemoryManager *)((MPID_Comm)*comm).memManagerPtr;
 	
 	shfree(pesGroupPtr);
 	shfree(groupPtr);
 	shfree(sharedBuffer);
-	
-	// Free all of the memory pointer (if there are more than one.
-	isThereMore = TRUE;
-	while (isThereMore) {
-		if ( ((MemoryManager)*memPtr).next == NULL ){
-			isThereMore = FALSE;
-			lastPtr = memPtr;
-			memPtr = ((MemoryManager)*memPtr).previous;
-			((MemoryManager)*memPtr).next = NULL;
-			shfree( lastPtr );
-		}
-		else {
-			memPtr = ((MemoryManager)*memPtr).next;
-		}
-	}
-	// Now I should be at the end of all of the memory pointers, no free those.
-	isThereMore = TRUE;
-	while (isThereMore) {
-		if ( ((MemoryManager)*memPtr).previous != NULL) {
-			lastPtr = memPtr;
-			memPtr = ((MemoryManager)*memPtr).previous;
-			shfree ( lastPtr );
-			
-			if (memPtr == NULL) {
-				isThereMore = FALSE;
-				shfree( memPtr );
-			}
-			isThereMore = FALSE;
-		}
-	}
-	
+		
 	if (isMultiThreads){
 		pthread_mutex_unlock(&lockCommFree);
 	}
@@ -1801,7 +1698,15 @@ int MPI_Recv (void *buf, int count, MPI_Datatype datatype, int source, int tag, 
 		  break;
 		default:
 		  shmem_getmem(buf, recv_buf, count, source);
-		  break;
+			/** DEBUG **
+			if (my_pe == 1){
+				printf("MPI_Recv: pe: %d count: %d\n", my_pe, count);
+				int i;
+				for (i=0;i<count;i++){
+					printf("MPI_Recv: pe: %d buf[] = %d\n", my_pe, ((char*) buf)[i]);
+				}
+			} **/
+			break;
 	}
 	
 	if (isMultiThreads){
@@ -1893,6 +1798,15 @@ int MPI_Send (void *buf, int count, MPI_Datatype datatype, int dest, int tag, MP
 			shmem_longlong_put(recv_buf, buf, count, dest);
 			break;
 		default:
+			/* DEBUG *
+			 if (my_pe == 1) {
+				printf("MPI_Send: pe: %d count: %d\n", my_pe, count);
+				int i;
+				for (i=0;i<count;i++){
+					printf("MPI_Send: pe: %d buf[] = %d\n", my_pe, ((char*) buf)[i]);
+				}
+			}**/
+			
 			shmem_putmem(recv_buf, buf, count, dest);
 			break;
 	}
@@ -2036,7 +1950,6 @@ int MPI_Irecv (void *buf, int count, MPI_Datatype datatype, int source, int tag,
 int MPI_Isend(void *buf, int count, MPI_Datatype datatype, int dest, int tag, MPI_Comm comm, MPI_Request *request){
 	
 	int   my_pe;
-	int   i;
 	int	  numBytes;
 	void *symRecvBuf;
 	void *recvBufIndex;
@@ -2080,7 +1993,9 @@ int MPI_Isend(void *buf, int count, MPI_Datatype datatype, int dest, int tag, MP
 		CopyMyData( symSendBuf, buf, count, datatype);
 		
 #ifdef DEBUG
-		/**for (i=0; i<count; i++){
+		/**
+		 int i;
+		 for (i=0; i<count; i++){
 		 printf("MPI_Isend: rank: %d symBuf: %ld, count: %d\n", my_pe, ((long*)symSendBuf)[i], count);
 		 }**/
 #endif
@@ -2213,9 +2128,8 @@ int MPI_Unpack (void *inbuf, int insize, int *position, void *outbuf, int outcou
 	int totalNumBytes;
 	int my_pe;
 	int rank;
-	int i, createSymInbuf;
+	int createSymInbuf;
 	void *symInbuf;
-	void *symBufIndex;
 	int  numSymBytes;
 	
 	if (comm == NULL) {
@@ -2235,7 +2149,7 @@ int MPI_Unpack (void *inbuf, int insize, int *position, void *outbuf, int outcou
 
 	createSymInbuf = FALSE;
 	if ( !shmem_addr_accessible( inbuf, my_pe) ) {
-		printf("MPI_Unpack::Buffer is not in a symmetric segment, pe: %d\n", my_pe);
+		//printf("MPI_Unpack::Buffer is not in a symmetric segment, pe: %d\n", my_pe);
 		mlog(MPI_DBG, "DEBUG: Buffer is not in a symmetric segment, %d\n", my_pe);
 		
 		symInbuf = ((MPID_Comm)*comm).bufferPtr;
@@ -2244,21 +2158,15 @@ int MPI_Unpack (void *inbuf, int insize, int *position, void *outbuf, int outcou
 		CopyMyData( symInbuf, inbuf, outcount, datatype);
 		
 #ifdef DEBUG
-		/**/for (i=0; i<insize; i++){
+		/**
+		 int i;
+		 for (i=0; i<insize; i++){
 		 printf("MPI_Unpack: rank: %d symOutBuf: %d, insize: %d\n", my_pe, ((int*)symInbuf)[i], insize);
-		 }/**/
+		 }**/
 #endif
-		// Make the destination start at an offset:
-		symBufIndex = GetBufferOffset( outcount, &numSymBytes, datatype, comm );
 		
 		createSymInbuf = TRUE;
 	}
-	else {
-		/**/for (i=0; i<outcount; i++){
-			printf("MPI_Unpack: rank: %d inbuf: %d, insize: %d\n", my_pe, ((int*)inbuf)[i], insize);
-		}/**/
-	}
-
 	
 	// Figure out how many bytes the datatype has                                                                                
 	switch (datatype){
@@ -2295,8 +2203,8 @@ int MPI_Unpack (void *inbuf, int insize, int *position, void *outbuf, int outcou
 			numBytes = outcount * sizeof(char);
 			break;
 	}
-	//mlog(MPI_DBG,"MPI_Unpack, PE: %d, Number of bytes: %d, position: %d \n", my_pe, numBytes, *position);
-	//mlog(MPI_DBG,"MPI_Unpack, PE: %d, inbuf: %c, outbuf: %c \n", rank, ((char *)inbuf)[*position], ((char *)outbuf)[0]);
+	mlog(MPI_DBG,"MPI_Unpack, PE: %d, Number of bytes: %d, position: %d \n", my_pe, numBytes, *position);
+	mlog(MPI_DBG,"MPI_Unpack, PE: %d, inbuf: %c, outbuf: %c \n", rank, ((char *)inbuf)[*position], ((char *)outbuf)[0]);
 	
 	// Check to see if there is enough space for the send:
 	totalNumBytes = numBytes + *position;
@@ -2312,7 +2220,7 @@ int MPI_Unpack (void *inbuf, int insize, int *position, void *outbuf, int outcou
 	//shmem_getmem(buf, recv_buf, count, source);
 	
 	if (createSymInbuf){
-		shmem_getmem( outbuf, symInbuf, numBytes, rank);
+		shmem_getmem( outbuf, &(((char *)symInbuf)[*position]), numBytes, rank);
 	}
 	else {
 		shmem_getmem( outbuf, &(((char *)inbuf)[*position]), numBytes, rank);
@@ -2348,12 +2256,8 @@ int MPI_Pack(void *inbuf, int incount, MPI_Datatype datatype, void *outbuf, int 
 	int totalNumBytes;
 	int my_pe;
 	int rank;
-	int i;
 	void *symOutbuf;
-	void *outBufIndex;
-	void *symInbuf;
-	int  numSymBytes;
-	int createSymOutbuf, createSymInbuf;
+	int createSymOutbuf;
 	
 	if (comm == NULL) {
 		mlog(MPI_ERR, "Invalid communicator.\n");
@@ -2365,7 +2269,6 @@ int MPI_Pack(void *inbuf, int incount, MPI_Datatype datatype, void *outbuf, int 
 	}
 	
 	totalNumBytes = 0;
-	numSymBytes   = 0;
 	my_pe         = shmem_my_pe();
 	
 	MPI_Comm_rank(comm, &rank);
@@ -2408,14 +2311,18 @@ int MPI_Pack(void *inbuf, int incount, MPI_Datatype datatype, void *outbuf, int 
 	
 	mlog(MPI_DBG,"MPI_Pack, PE: %d, Number of bytes: %d, position: %d \n", my_pe, numBytes, *position);
 	mlog(MPI_DBG,"MPI_Pack, PE: %d, inbuf: %c, outbuf: %c \n", rank, ((char *)inbuf)[*position], ((char *)outbuf)[0]);
-	printf("MPI_PACK, PE: %d, numBytes: %d, position: %d \n", my_pe, numBytes, *position);
-	printf("MPI_Pack, PE: %d, inbuf: %d, outbuf: %c \n", rank, ((int *)inbuf)[*position], ((char *)outbuf)[0]);
+
+	/** Debug 
+	 if (my_pe == 1) {
+		printf("MPI_PACK, PE: %d, numBytes: %d, position: %d \n", my_pe, numBytes, *position);
+		printf("MPI_Pack, PE: %d, inbuf: %d, outbuf: %c \n", rank, ((int *)inbuf)[*position], ((char *)outbuf)[0]);
+	}**/
 
 	// Check to see if there is enough space for the send:
 	totalNumBytes = numBytes + *position;
 	if (totalNumBytes > outsize) {
 		mlog(MPI_ERR,"MPI_Pack::, pe: %d total bytes is larger (%d) than buffer size (%d).\n", my_pe, totalNumBytes, outsize);
-		printf("MPI_Pack::, pe: %d total bytes is larger (%d) than buffer size (%d).\n", my_pe, totalNumBytes, outsize);
+		//printf("MPI_Pack::, pe: %d total bytes is larger (%d) than buffer size (%d).\n", my_pe, totalNumBytes, outsize);
 		if (isMultiThreads){
 			pthread_mutex_unlock(&lockPack);
 		}
@@ -2425,22 +2332,10 @@ int MPI_Pack(void *inbuf, int incount, MPI_Datatype datatype, void *outbuf, int 
 	// Check the send buffer, use work around if not symmetric
 	createSymOutbuf = FALSE;
 	if ( !shmem_addr_accessible( outbuf, my_pe) ) {
-		printf("MPI_Pack::Out Buffer is not in a symmetric segment, pe: %d\n", my_pe);
+		//printf("MPI_Pack::Out Buffer is not in a symmetric segment, pe: %d\n", my_pe);
 		mlog(MPI_DBG, "DEBUG: Out Buffer is not in a symmetric segment, %d\n", my_pe);
 		
 		symOutbuf = ((void*)((MPID_Comm)*comm).bufferPtr);
-		
-		// Move user's source into the symmetric buffer, since they can't create one.
-		//CopyMyData( symOutbuf, outbuf, outsize, MPI_CHAR);
-		//shmem_barrier_all ();
-		
-#ifdef DEBUG
-		/**for (i=0; i<outsize; i++){
-		 printf("MPI_Pack: rank: %d symOutBuf: %ld, outsize: %d\n", my_pe, ((char*)symOutbuf)[i], outsize);
-		 }**/
-#endif
-		// Make the destination start at an offset:
-		outBufIndex = GetBufferOffset( outsize, &numSymBytes, MPI_CHAR, comm );
 		
 		createSymOutbuf = TRUE;
 	}
@@ -2455,10 +2350,34 @@ int MPI_Pack(void *inbuf, int incount, MPI_Datatype datatype, void *outbuf, int 
 
 	// and to be on the safe side:
 	shmem_fence();
+
+	/* DEBUG **
+	if (my_pe == 1){
+	    int i;
+		for (i=0;i<numBytes;i++){
+			printf("MPI_Pack: pe: %d inbuf[]: %c, %d\n", my_pe, ((char*)inbuf)[i], ((int*)inbuf)[i]);
+		}
+		if (createSymOutbuf){
+			for (i=0;i<numBytes;i++){
+				printf("MPI_Pack: pe: %d symOutbuf[]: %c\n", my_pe, ((char*)symOutbuf)[i]);
+			}
+		}
+		else {
+			for (i=0;i<numBytes;i++){
+				printf("MPI_Pack: pe: %d outbuf[]: %c\n", my_pe, ((char*)outbuf)[i]);
+			}
+		}
+		
+	}**/
 	
 	// Don't forget to increment the position
 	*position = *position + numBytes;
 	
+	// If using local symmetric memory, move the results to the user's buffer
+	if (createSymOutbuf) {
+		CopyMyData(outbuf, symOutbuf, numBytes, MPI_CHAR);
+	}
+
 	if (isMultiThreads){
 		pthread_mutex_unlock(&lockPack);
 	}

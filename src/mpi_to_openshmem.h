@@ -74,19 +74,6 @@ typedef int MPI_Datatype;
 #define MPI_THREAD_SERIALIZED	2
 #define MPI_THREAD_MULTIPLE		3
 
-/**** For memory management (this might be removed)     ****/
-#define	NO_COMMAND	0
-#define ALLGATHER	1
-#define BROADCAST	2
-#define	GATHER		3
-#define	GATHERV		4
-#define	IRECV		5
-#define	ISEND		6
-#define	PACK		7
-#define RECV		8
-#define	SEND		9
-#define	UNPACK		10
-
 /**** from mpidefs.h									****/
 /* 
  Status object.  It is the only user-visible MPI data-structure 
@@ -111,14 +98,6 @@ typedef struct {
 } MPI_Status;
 /****                									****/
 
-typedef struct MemoryManager{
-	void *previous;	  // Pointer to previous region of MemoryManager (null for beginning)
-	int	  startIndex; // Byte index of where this data starts.
-	int	  numBytes;	  // The number of bytes of data
-	int	  mpiCommand; // The MPI Command who is using this region. The commands are #defined values...
-	void *next;		  // Pointer next region of Memory Managerb(null if nothing is after.)
-} MemoryManager;
-
 typedef struct MPID_Group {
     int               size;           /* Size of a group */
     int               rank;           /* rank of this process relative to this group */
@@ -132,7 +111,6 @@ typedef struct MPID_Comm {
     MPID_Group		*groupPtr;   /* Groups in communicator. */
 	void			*bufferPtr;
 	int				offset;      /* offset of the number of bytes into the buffer - placeholder. */
-	MemoryManager	*memManagerPtr;
 } MPID_Comm;
 
 typedef struct MPID_Request{
