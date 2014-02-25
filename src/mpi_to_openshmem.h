@@ -16,6 +16,7 @@
 #include <pthread.h>
 #include "Mlog/mlog.h"
 #include "Mlog/mlogfacs.h"
+#include "../uthash-master/src/uthash.h"
 
 #define INT_32			4	// number of bytes for a 32 bit integer
 #define INT_64			8	// number of bytes for a 64 bit integer
@@ -23,15 +24,10 @@
 #define	FALSE			0
 #define TRUE			1
 
-#define SEND_TYPE		0
-#define RECEIVE_TYPE	1
-
 #define	MAX_BUFFER_SIZE	200000 //(in bytes)
 
-long pSync[_SHMEM_BCAST_SYNC_SIZE];
-
-
 /**** from mpi.h.in									****/
+//#define MPI_COMM_WORLD		0
 
 #define MPI_SUCCESS          0      /* Successful return code */
 #define MPI_ERR_NO_MEM       1      /* Alloc_mem could not allocate memory */
@@ -96,7 +92,10 @@ typedef struct {
     int extra[MPI_STATUS_SIZE - 4];
 #endif
 } MPI_Status;
+
 /****                									****/
+
+typedef	enum {RECV, IRECV, SEND, ISEND} requestType_t;
 
 typedef struct MPID_Group {
     int               size;           /* Size of a group */
@@ -105,32 +104,48 @@ typedef struct MPID_Group {
     int               *pesInGroup;     /* integer array of all of the PEs in this group. Rank is the index. */
 } MPID_Group;
 
+typedef struct MPID_Hash{
+	int				id;		// Hash table id.
+	int				tag;		// Rcv/IRcv Send/Isend tag value.
+	long			count;		// Number of data in the buffer
+	MPI_Datatype	datatype;
+	int				srcRank;	// Source's Rank
+	int				destRank;	// Destination's Rank
+	void			*bufPtr;	// Where data sent is, and where receive gets it.
+	requestType_t	requestType; // type of the request.
+	int				isGrabbed;  // Boolean to see if recv has picked this up.
+	UT_hash_handle  hh;         /* makes this structure hashable */
+}MPID_Hash;
+
 typedef struct MPID_Comm {
     int				rank;		 /* Value of MPI_Comm_rank */
     int				size;		 /* Value of MPI_Comm_size for local group */
     MPID_Group		*groupPtr;   /* Groups in communicator. */
-	void			*bufferPtr;
-	int				offset;      /* offset of the number of bytes into the buffer - placeholder. */
+	void			*bufferPtr;  /* Using this space for pack/unpack. */
+	int				offset;      /* offset of the number of bytes into the buffer. */
+	struct MPID_Hash *hashPtr;	 /* Using this space for send/isend/recv/irecv */
 } MPID_Comm;
 
 typedef struct MPID_Request{
-	int				requestType;	/* either SEND_TYPE or RECEIVE_TYPE */
+	requestType_t	requestType;	
 	int				rank;			/* Value of MPI_Comm_rank */
 	MPI_Datatype	dataType;		/* type of the data sent/received */
 	void			*lastBufPtr;	/* pointer to the last item in the buffer sent/rcvd */
 	void			*expected;		/* pointer to expected value in the last address */
 } MPID_Request;
 
-typedef MPID_Group		MPI_Group;
-typedef MPID_Request    MPI_Request;
-typedef MPID_Comm		*MPI_Comm;
-MPI_Comm MPI_COMM_WORLD;			/* Communicator handles are pointers to structures...*/
+typedef MPID_Group	MPI_Group;
+typedef MPID_Request MPI_Request;
+typedef MPID_Comm	*MPI_Comm;
+MPI_Comm MPI_COMM_WORLD;	/* Communicator handles are pointers to structures...*/
+
 
 /* For MPI_Init_thread and multi-threaded support.
  * OpenShmem does not support multithreads.
  */
 int isMultiThreads;
 pthread_mutex_t	lockGetOffset;
+pthread_mutex_t	lockGetNumBytes;
 pthread_mutex_t	lockCopyData;
 pthread_mutex_t	lockAbort;
 pthread_mutex_t	lockBarrier;

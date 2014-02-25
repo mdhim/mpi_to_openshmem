@@ -15,6 +15,11 @@
 
 #define DEBUG 1
 
+long pSync[_SHMEM_BCAST_SYNC_SIZE];
+
+// Do something cheap, and see if this needs to go into the comm...
+MPID_Hash *bufferHash = NULL;
+
 /**
  * MPI_Init
  * Initializes for Openshmem
@@ -262,35 +267,30 @@ int MPI_Barrier (MPI_Comm comm){
 	return ret;
 }
 
-
 /**
- * CopyMyData
- *   Copy data from one buffer to another.  Why am I not using memcpy?  
- *   because it didn't work.  The values never ended up in the destination 
- *	 buffer...
+ * GetNumBytes
+ *   Get the number of bytes from the count and MPI_Datatype.
  *
  * Input/Output Parameter
  *
- * @param  toBuf	destination buffer
- * @param  fromBuf	source buffer
- * @param  count	number of items to copy
+ * @param  count	number of items.
  * @param  dataType	data type of the items
  *
- * @return status
+ * @return numBytes number of bytes.
  */
-
-int CopyMyData( void *toBuf, void *fromBuf, int count, MPI_Datatype dataType ){
-
-	int my_pe;
-	int ret;
+int GetNumBytes( int count, MPI_Datatype dataType ){
+	
+	//int my_pe;
+	int	 ret;
 	long numBytes;
-
+	
 	if (isMultiThreads){
-		pthread_mutex_lock(&lockCopyData);
+		pthread_mutex_lock(&lockGetNumBytes);
 	}
 	
+	//my_pe = shmem_my_pe();
 	ret = MPI_SUCCESS;
-	my_pe = shmem_my_pe();
+	numBytes = 0;
 	
 	switch (dataType){
 		case MPI_CHAR:
@@ -328,12 +328,47 @@ int CopyMyData( void *toBuf, void *fromBuf, int count, MPI_Datatype dataType ){
 			break;
 	}
 
+	if (isMultiThreads){
+		pthread_mutex_unlock(&lockGetNumBytes);
+	}
+	
+	return numBytes;
+} // GetNumBytes
+
+/**
+ * CopyMyData
+ *   Copy data from one buffer to another.  Why am I not using memcpy?  
+ *   because it didn't work.  The values never ended up in the destination 
+ *	 buffer...
+ *
+ * Input/Output Parameter
+ *
+ * @param  toBuf	destination buffer
+ * @param  fromBuf	source buffer
+ * @param  count	number of items to copy
+ * @param  dataType	data type of the items
+ *
+ * @return status
+ */
+
+int CopyMyData( void *toBuf, void *fromBuf, int count, MPI_Datatype dataType ){
+
+	long numBytes;
+
+	if (isMultiThreads){
+		pthread_mutex_lock(&lockCopyData);
+	}
+	
+	numBytes = GetNumBytes(count, dataType);
 	
 	memcpy(toBuf, fromBuf, numBytes);
 	
 	/**
-	int i;
-	for (i=0; i<count; i++){
+	 int my_pe;
+	 int i;
+	 my_pe    = shmem_my_pe();
+
+	 for (i=0; i<count; i++){
 		printf("CopyMyData: my pe: %-8d fromBuf: %ld, numBytes: %ld \n", my_pe, ((int*)fromBuf)[i], numBytes);
 	}
 	for (i=0; i<count; i++){
@@ -345,9 +380,10 @@ int CopyMyData( void *toBuf, void *fromBuf, int count, MPI_Datatype dataType ){
 		pthread_mutex_unlock(&lockCopyData);
 	}
 	
-	return ret;
+	return MPI_SUCCESS;
 	
 }
+
 /**
  * GetBufferOffset
  *   Calculate the offset of comm's buffer, since you are
@@ -376,43 +412,9 @@ void *GetBufferOffset( int count, int *numBytes, MPI_Datatype dataType,  MPI_Com
 	}
 
 	my_pe = shmem_my_pe();
-	
-	switch (dataType){
-		case MPI_CHAR:
-		case MPI_UNSIGNED_CHAR:
-		case MPI_BYTE:
-			*numBytes = count * sizeof(char);
-			break;
-		case MPI_SHORT:
-		case MPI_UNSIGNED_SHORT:
-			*numBytes = count * sizeof(short);
-			break;
-		case MPI_INT:
-		case MPI_UNSIGNED:
-			*numBytes = count * sizeof(int);
-			break;
-		case MPI_LONG:
-		case MPI_UNSIGNED_LONG:
-			*numBytes = count * sizeof(long);
-			break;
-		case MPI_FLOAT:
-			*numBytes = count * sizeof(float);
-			break;
-		case MPI_DOUBLE:
-			*numBytes = count * sizeof(double);
-			break;
-		case MPI_LONG_DOUBLE:
-			*numBytes = count * sizeof(long double);
-			break;
-		case MPI_LONG_LONG:
-			*numBytes = count * sizeof(long long);
-			break;
-		default:
-			*numBytes = count * sizeof(char);
-			break;
-	}
     
 	// Get the current offset from the comm.
+	*numBytes = GetNumBytes(count, dataType);
 	currentOffset = ((MPID_Comm)*comm).offset;
 	newOffset     = currentOffset + *numBytes;
 	
@@ -424,7 +426,7 @@ void *GetBufferOffset( int count, int *numBytes, MPI_Datatype dataType,  MPI_Com
 	if (isMultiThreads){
 		pthread_mutex_unlock(&lockGetOffset);
 	}
-	
+
 	return bufferPtr;
 	
 }
@@ -496,7 +498,7 @@ int MPI_Bcast ( void *source, int count, MPI_Datatype dataType, int root, MPI_Co
 		pSync[i] = _SHMEM_SYNC_VALUE;
     }
 	
-	shmem_barrier_all ();
+	shmem_barrier_all (); // This barrier has to be here, per OpenShmem Spec.
 	
 	if (createSymSource) {
 		shmem_broadcast64( destBuffer, symSource, count, root, 0, 0, npes, pSync);
@@ -516,9 +518,7 @@ int MPI_Bcast ( void *source, int count, MPI_Datatype dataType, int root, MPI_Co
 		else 
 			CopyMyData(source, destBuffer, count, dataType);
 	}
-	
-	// Re-set the comm's offset.  We are finished using the buffer.
-
+		
 #ifdef DEBUG
 	for (i = 0; i < count; i++){
 		mlog(MPI_DBG, "MPI_Bcast1: rank: %-8d source: %ld\n", my_pe, ((long*)source)[i]); 
@@ -1665,6 +1665,7 @@ int MPI_Recv (void *buf, int count, MPI_Datatype datatype, int source, int tag, 
 	  mlog(MPI_DBG, "MPI_Recv::Buffer is NOT in a symmetric segment, pe: %d\n", my_pe);
 	}
 #endif
+	printf ("MPI_Recv: me: %d, tag: %d\n", my_pe,tag);
 	
 	switch (datatype){
 		case MPI_CHAR:
@@ -1731,8 +1732,73 @@ int MPI_Recv (void *buf, int count, MPI_Datatype datatype, int source, int tag, 
  * @return status
  */
 int MPI_Send (void *buf, int count, MPI_Datatype datatype, int dest, int tag, MPI_Comm comm){
-	
+/* NEW STUFF	
 	int  ret;
+	int my_pe;
+	//void *recv_buf;
+	MPID_Hash *hash;
+	int  numBytes;
+	
+	if (comm == NULL) {
+		mlog(MPI_ERR, "Invalid communicator.\n");
+		return MPI_ERR_COMM;
+	}
+	
+	if (isMultiThreads){
+		pthread_mutex_lock(&lockSend);
+	}
+	
+	my_pe = shmem_my_pe();
+	
+	
+	//mlog(MPI_DBG,"MPI_Send: PE: %d, recv_buffer Addr = %x\n", my_pe, recv_buf);
+		
+	printf ("MPI_Send: me: %d, tag: %d\n", my_pe,tag);
+	switch (datatype){
+		case MPI_CHAR:
+		case MPI_UNSIGNED_CHAR:
+		case MPI_BYTE:
+			shmem_putmem(hash->bufPtr, buf, count, dest);
+			break;
+		case MPI_SHORT:
+		case MPI_UNSIGNED_SHORT:
+			shmem_short_put(hash->bufPtr, buf, count, dest);
+			break;
+		case MPI_INT:
+		case MPI_UNSIGNED:
+			shmem_int_put(hash->bufPtr, buf, count, dest);
+			break;
+		case MPI_LONG:
+		case MPI_UNSIGNED_LONG:
+			shmem_long_put(hash->bufPtr, buf, count, dest);
+			break;
+		case MPI_FLOAT:
+			shmem_float_put(hash->bufPtr, buf, count, dest);
+			break;
+		case MPI_DOUBLE:
+			shmem_double_put(hash->bufPtr, buf, count, dest);
+			break;
+		case MPI_LONG_DOUBLE:
+			shmem_longdouble_put(hash->bufPtr, buf, count, dest);
+			break;
+		case MPI_LONG_LONG:
+			shmem_longlong_put(hash->bufPtr, buf, count, dest);
+			break;
+		default:
+			* DEBUG *
+			 if (my_pe == 1) {
+				printf("MPI_Send: pe: %d count: %d\n", my_pe, count);
+				int i;
+				for (i=0;i<count;i++){
+					printf("MPI_Send: pe: %d buf[] = %d\n", my_pe, ((char*) buf)[i]);
+				}
+			}**
+			
+			shmem_putmem(hash->bufPtr, buf, count, dest);
+			break;
+	}
+*/
+	int ret;
 	int my_pe;
 	void *recv_buf;
 	
@@ -1800,16 +1866,22 @@ int MPI_Send (void *buf, int count, MPI_Datatype datatype, int dest, int tag, MP
 		default:
 			/* DEBUG *
 			 if (my_pe == 1) {
-				printf("MPI_Send: pe: %d count: %d\n", my_pe, count);
-				int i;
-				for (i=0;i<count;i++){
-					printf("MPI_Send: pe: %d buf[] = %d\n", my_pe, ((char*) buf)[i]);
-				}
-			}**/
+			 printf("MPI_Send: pe: %d count: %d\n", my_pe, count);
+			 int i;
+			 for (i=0;i<count;i++){
+			 printf("MPI_Send: pe: %d buf[] = %d\n", my_pe, ((char*) buf)[i]);
+			 }
+			 }**/
 			
 			shmem_putmem(recv_buf, buf, count, dest);
 			break;
 	}
+	
+	time_t mytime;
+	mytime = time(NULL);
+	printf("MPI_Send:pe: %d Time: ", my_pe);
+	printf(ctime(&mytime));
+	printf("/n");
 	
 	// and to be on the safe side:
 	shmem_fence();
@@ -1917,7 +1989,7 @@ int MPI_Irecv (void *buf, int count, MPI_Datatype datatype, int source, int tag,
 	}
 	// Set-up MPI_Request for MPI_Irecv
 	shmem_int_get( (*request).expected, (*request).lastBufPtr, 1, source);
-	(*request).requestType = RECEIVE_TYPE;
+	(*request).requestType = IRECV;
 	(*request).rank		= source;
 	(*request).dataType	= datatype;
 	
@@ -1928,7 +2000,7 @@ int MPI_Irecv (void *buf, int count, MPI_Datatype datatype, int source, int tag,
 	}
 	
 	return ret;
-}
+} // Irecv
 
 /**
  * MPI_Isend
@@ -2094,7 +2166,7 @@ int MPI_Isend(void *buf, int count, MPI_Datatype datatype, int dest, int tag, MP
 	(*request).lastBufPtr   = &((int *)symRecvBuf)[count-1];
 
 	// Set-up MPI_Request for MPI_Isend                                                                        
-	(*request).requestType = SEND_TYPE;
+	(*request).requestType = ISEND;
 	(*request).rank		   = dest;
 	(*request).dataType	   = datatype;
 	
@@ -2106,7 +2178,7 @@ int MPI_Isend(void *buf, int count, MPI_Datatype datatype, int dest, int tag, MP
 	}
 
 	return MPI_SUCCESS;
-}
+}// Isend
 
 /**
  * MPI_Unpack
@@ -2444,7 +2516,7 @@ int MPI_Test (MPI_Request *request, int *flag, MPI_Status *status){
  * @param source	source rank
  * @param tag		tag value
  * @param comm		communicator
- * @param flag		True if a message with the specified source, tag, and communicator anr available (not reliable)
+ * @param flag		True if a message with the specified source, tag, and communicator and available (not reliable)
  * @param status	status object (not used).
  *
  * @return MPI_SUCCESS
@@ -2471,7 +2543,7 @@ int MPI_Iprobe(int source, int tag, MPI_Comm comm, int *flag, MPI_Status *status
 		*flag = 1;
 	//}
 	
-	sleep(10);
+	sleep(40);
 	
 	if (isMultiThreads){
 		pthread_mutex_unlock(&lockIprobe);
