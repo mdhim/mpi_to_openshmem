@@ -114,6 +114,7 @@ typedef struct MPID_Hash{
 	void			*bufPtr;	// Where data sent is, and where receive gets it.
 	requestType_t	requestType; // type of the request.
 	int				isGrabbed;  // Boolean to see if recv has picked this up.
+	time_t			time;       // Time this was created (on Send or Isend)
 	UT_hash_handle  hh;         /* makes this structure hashable */
 }MPID_Hash;
 
@@ -139,6 +140,7 @@ typedef MPID_Request MPI_Request;
 typedef MPID_Comm	*MPI_Comm;
 MPI_Comm MPI_COMM_WORLD;	/* Communicator handles are pointers to structures...*/
 
+long pSync[_SHMEM_BCAST_SYNC_SIZE];
 
 /* For MPI_Init_thread and multi-threaded support.
  * OpenShmem does not support multithreads.
@@ -196,5 +198,7 @@ int MPI_Test(MPI_Request *request, int *flag, MPI_Status *status);
 
 // Routine for pftool - this really doesn't work the correct MPI way.
 int MPI_Iprobe(int source, int tag, MPI_Comm comm, int *flag, MPI_Status *status);
+
+int GetNumBytes( int count, MPI_Datatype dataType );
 
 #endif

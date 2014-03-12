@@ -9,7 +9,7 @@
 #ifndef      __HASHUTILS_H
 #define      __HASHUTILS_H
 
-#include "mpi_to_openshmem.h"
+int AddBufferSpace(int tag, long count, MPI_Datatype datatype, int srcRank, int destRank, requestType_t requestType, void **bufPtr, MPI_Comm comm);
 
 pthread_mutex_t	lockAddBufferSpace;
 

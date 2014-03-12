@@ -12,13 +12,9 @@
  */
 
 #include "mpi_to_openshmem.h"
+#include "hashUtils.h"
 
 #define DEBUG 1
-
-long pSync[_SHMEM_BCAST_SYNC_SIZE];
-
-// Do something cheap, and see if this needs to go into the comm...
-MPID_Hash *bufferHash = NULL;
 
 /**
  * MPI_Init
@@ -88,6 +84,7 @@ int MPI_Init( int *argc, char ***argv ){
 	((MPID_Comm) *MPI_COMM_WORLD).bufferPtr = sharedBuffer;
  	((MPID_Comm) *MPI_COMM_WORLD).groupPtr  = groupPtr;
  	((MPID_Comm) *MPI_COMM_WORLD).offset    = 0;
+ 	((MPID_Comm) *MPI_COMM_WORLD).hashPtr   = NULL;
 	
 	// Set values in the Comm's Group
 	((MPID_Group)*groupPtr).rank    = my_pe;
@@ -180,6 +177,7 @@ int MPI_Init_thread( int *argc, char ***argv, int required, int *provided ){
 	((MPID_Comm) *MPI_COMM_WORLD).bufferPtr = sharedBuffer;
  	((MPID_Comm) *MPI_COMM_WORLD).groupPtr  = groupPtr;
  	((MPID_Comm) *MPI_COMM_WORLD).offset    = 0;
+ 	((MPID_Comm) *MPI_COMM_WORLD).hashPtr   = NULL;
 	
 	// Set values in the Comm's Group
 	((MPID_Group)*groupPtr).rank    = my_pe;
@@ -1717,6 +1715,128 @@ int MPI_Recv (void *buf, int count, MPI_Datatype datatype, int source, int tag, 
 	return ret;
 }
 
+
+// This is here because adding it in the hashUtils file caused a segfault with shmalloc.
+// I will investigate that later: 2/27/2014
+struct MPID_Hash *bufHashTbl = NULL;
+int AddHashEntry(int tag, long count, MPI_Datatype datatype, int srcRank, int destRank, 
+				 requestType_t requestType, void **bufPtr, MPI_Comm comm) {
+	
+	int		   createHash;
+	int		   my_pe;
+	int		   numBytes;
+	
+	if (isMultiThreads){
+		pthread_mutex_lock(&lockAddBufferSpace);
+	}
+    struct MPID_Hash *newEntry;
+	
+	createHash = FALSE;
+	
+    //HASH_FIND_INT(comm->hashPtr, &id, newEntry);  /* id already in the hash? */
+    HASH_FIND_INT(bufHashTbl, &tag, newEntry);  /* id already in the hash? */
+	shmem_barrier_all();  // This needs to be here...
+    if (newEntry==NULL) {
+		newEntry = (struct MPID_Hash*)shmalloc(sizeof(struct MPID_Hash));
+		newEntry->id = tag;
+		//HASH_ADD_INT( comm->hashPtr, id, newEntry );  /* id: name of key field */
+		HASH_ADD_INT( bufHashTbl, tag, newEntry );  /* id: name of key field */
+    }
+	
+	// Is this correct? GINGER
+	comm->hashPtr = bufHashTbl;
+	
+	// Place where the buffer data is actually going:
+	numBytes = GetNumBytes(count, datatype);
+	shmem_barrier_all();  // This needs to be here...
+	*bufPtr = (void*)shmalloc( numBytes );
+	
+	if (*bufPtr == NULL){
+		mlog(MPI_DBG, "Error: Unable to create space for receive buffer PE: %d\n", srcRank);
+		if (isMultiThreads){
+			pthread_mutex_unlock(&lockAddBufferSpace);
+		}
+		return MPI_ERR_BUFFER;
+	}
+	
+	// Fill in data:
+	newEntry->tag         = tag;
+	newEntry->count       = count;
+	newEntry->datatype    = datatype;
+	newEntry->srcRank     = srcRank;
+	newEntry->destRank    = destRank;
+	newEntry->requestType = requestType;
+	newEntry->bufPtr      = *bufPtr;
+	newEntry->isGrabbed   = FALSE;
+	newEntry->time        = time(NULL);
+	
+	bufPtr = newEntry->bufPtr;
+	
+	/*
+	 HASH_FIND_INT(bufferHash, &id, hash);  // Is the key already in the hash?
+	 
+	 // If the key is in use, should we see if it's finisehd, and blast it?
+	 if (hash != NULL) {
+	 if ( hash->isGrabbed ){	
+	 createHash = TRUE;
+	 
+	 // Free old buffer space.
+	 shfree( hash->bufPtr );
+	 }
+	 }
+	 // Create the space for the hash:
+	 else{
+	 hash = (MPID_Hash*)shmalloc(sizeof(MPID_Hash));
+	 
+	 if (hash == NULL){
+	 mlog(MPI_ERR, "Error: Unable to create space for new Hash entry, PE: %d\n", srcRank);
+	 if (isMultiThreads){
+	 pthread_mutex_unlock(&lockAddBufferSpace);
+	 }
+	 return MPI_ERR_BUFFER;
+	 }
+	 
+	 hash->id = id;
+	 }
+	 
+	 // Now create and move data into the structure...
+	 if (createHash) {
+	 
+	 // Place where the buffer data is actually going:
+	 numBytes = GetNumBytes(count, datatype);
+	 hash->bufPtr = (void*)shmalloc( numBytes );
+	 
+	 if (hash->bufPtr == NULL){
+	 mlog(MPI_DBG, "Error: Unable to create space for receive buffer PE: %d\n", srcRank);
+	 if (isMultiThreads){
+	 pthread_mutex_unlock(&lockAddBufferSpace);
+	 }
+	 return MPI_ERR_BUFFER;
+	 }
+	 
+	 // Fill in data:
+	 hash->tag         = tag;
+	 hash->count       = count;
+	 hash->datatype    = datatype;
+	 hash->srcRank     = srcRank;
+	 hash->destRank    = destRank;
+	 hash->requestType = requestType;
+	 hash->isGrabbed   = FALSE;
+	 hash->time        = time(NULL);
+	 }
+	 else {
+	 // What do we do if it's not relinquished?
+	 // and there's a duplicate!
+	 }
+	 
+	 **/
+	if (isMultiThreads){
+		pthread_mutex_unlock(&lockAddBufferSpace);
+	}
+	
+	return MPI_SUCCESS;
+} // AddHashEntry
+
 /**
  * MPI_Send
  * Performs a blocking send
@@ -1732,11 +1852,11 @@ int MPI_Recv (void *buf, int count, MPI_Datatype datatype, int source, int tag, 
  * @return status
  */
 int MPI_Send (void *buf, int count, MPI_Datatype datatype, int dest, int tag, MPI_Comm comm){
-/* NEW STUFF	
+/* NEW STUFF	*/
 	int  ret;
 	int my_pe;
-	//void *recv_buf;
-	MPID_Hash *hash;
+	void *recv_buf;
+	int  id;
 	int  numBytes;
 	
 	if (comm == NULL) {
@@ -1749,55 +1869,20 @@ int MPI_Send (void *buf, int count, MPI_Datatype datatype, int dest, int tag, MP
 	}
 	
 	my_pe = shmem_my_pe();
+	id = my_pe + tag;
+	printf("MPI_Send: me: %d, create a hash entry.\n", my_pe);
+
+	ret = AddHashEntry(tag, count, datatype, my_pe, dest, SEND, recv_buf, comm);
 	
+	if (recv_buf == NULL){
+		//Do something drastic..
+		printf("MPI_Send, did not come back with symmetric memory space fo receiving data\n");
+	}
 	
 	//mlog(MPI_DBG,"MPI_Send: PE: %d, recv_buffer Addr = %x\n", my_pe, recv_buf);
 		
 	printf ("MPI_Send: me: %d, tag: %d\n", my_pe,tag);
-	switch (datatype){
-		case MPI_CHAR:
-		case MPI_UNSIGNED_CHAR:
-		case MPI_BYTE:
-			shmem_putmem(hash->bufPtr, buf, count, dest);
-			break;
-		case MPI_SHORT:
-		case MPI_UNSIGNED_SHORT:
-			shmem_short_put(hash->bufPtr, buf, count, dest);
-			break;
-		case MPI_INT:
-		case MPI_UNSIGNED:
-			shmem_int_put(hash->bufPtr, buf, count, dest);
-			break;
-		case MPI_LONG:
-		case MPI_UNSIGNED_LONG:
-			shmem_long_put(hash->bufPtr, buf, count, dest);
-			break;
-		case MPI_FLOAT:
-			shmem_float_put(hash->bufPtr, buf, count, dest);
-			break;
-		case MPI_DOUBLE:
-			shmem_double_put(hash->bufPtr, buf, count, dest);
-			break;
-		case MPI_LONG_DOUBLE:
-			shmem_longdouble_put(hash->bufPtr, buf, count, dest);
-			break;
-		case MPI_LONG_LONG:
-			shmem_longlong_put(hash->bufPtr, buf, count, dest);
-			break;
-		default:
-			* DEBUG *
-			 if (my_pe == 1) {
-				printf("MPI_Send: pe: %d count: %d\n", my_pe, count);
-				int i;
-				for (i=0;i<count;i++){
-					printf("MPI_Send: pe: %d buf[] = %d\n", my_pe, ((char*) buf)[i]);
-				}
-			}**
-			
-			shmem_putmem(hash->bufPtr, buf, count, dest);
-			break;
-	}
-*/
+/**
 	int ret;
 	int my_pe;
 	void *recv_buf;
@@ -1813,7 +1898,7 @@ int MPI_Send (void *buf, int count, MPI_Datatype datatype, int dest, int tag, MP
 	
 	my_pe = shmem_my_pe();
 	recv_buf = ((MPID_Comm)*comm).bufferPtr;
-	
+	**/
 	if (recv_buf == NULL){
 		ret = MPI_ERR_BUFFER;// some sort of proper error here
 		mlog(MPI_DBG, "Error: No symmetric memory for PE: %d\n", my_pe);
@@ -1877,11 +1962,14 @@ int MPI_Send (void *buf, int count, MPI_Datatype datatype, int dest, int tag, MP
 			break;
 	}
 	
-	time_t mytime;
+	time_t mytime, time2;
 	mytime = time(NULL);
 	printf("MPI_Send:pe: %d Time: ", my_pe);
 	printf(ctime(&mytime));
-	printf("/n");
+	printf("\n");
+	time2 = time(NULL);
+	double results = difftime(mytime, time2);
+	printf("MPI_Send:pe: %d Diff Time: %d\n", my_pe, results);
 	
 	// and to be on the safe side:
 	shmem_fence();
