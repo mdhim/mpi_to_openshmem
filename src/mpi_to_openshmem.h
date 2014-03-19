@@ -38,6 +38,11 @@
 #define MPI_ERR_NO_SPACE     6      // Memory exhausted.
 #define MPI_ERR_COMM         7      // Invalid communicator.
 #define MPI_ERR_GROUP        8      // Null group passed to function.
+ 
+#define HASH_ERR_ID_NOT_FOUND               9      // Couldn't find that id in the hash.
+#define HASH_ERR_MISMATCHED_COUNT          10      // Expected count douesn't match the one in the hash entry.
+#define HASH_ERR_MISMATCHED_REQUEST_TYPE   11      // Expected requestType douesn't match the one in the hash entry.
+#define HASH_ERR_MISMATCHED_DATATYPE       12      // Expected datatype douesn't match the one in the hash entry.
 
 typedef int MPI_Datatype;
 
@@ -124,7 +129,7 @@ typedef struct MPID_Comm {
     MPID_Group		*groupPtr;   /* Groups in communicator. */
 	void			*bufferPtr;  /* Using this space for pack/unpack. */
 	int				offset;      /* offset of the number of bytes into the buffer. */
-	struct MPID_Hash *hashPtr;	 /* Using this space for send/isend/recv/irecv */
+	struct MPID_Hash **hashPtr;	 /* Using this space for send/isend/recv/irecv */
 } MPID_Comm;
 
 typedef struct MPID_Request{
