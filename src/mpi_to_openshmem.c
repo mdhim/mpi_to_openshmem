@@ -400,7 +400,7 @@ int CopyMyData( void *toBuf, void *fromBuf, int count, MPI_Datatype dataType ){
  * @param  count		number of items currently in the buffer
  * @param  offset		number of bytes in buffer.
  * @param  dataType		data type of the items
- * @param  comm		communicator (handle) 
+ * @param  comm		    communicator (handle) 
  *
  * @return  bufferPtr	calculate the offset from the last offset of the symmetric buffer.
  */
@@ -1634,7 +1634,7 @@ int MPI_Group_incl (MPI_Group group, int n, int *ranks, MPI_Group *newgroup){
  */
 int MPI_Recv (void *buf, int count, MPI_Datatype datatype, int source, int tag, MPI_Comm comm, MPI_Status *status){
 	
-	int  ret;
+	int  ret, i;
 	void *recv_buf;
 	int my_pe;
 	
@@ -1648,48 +1648,15 @@ int MPI_Recv (void *buf, int count, MPI_Datatype datatype, int source, int tag, 
 	}
 	
 	my_pe = shmem_my_pe();
-	
-	ret = GetBufferPtrFromHash( tag, count, SEND, datatype, &recv_buf, comm );
-	printf("\nMPI_Recv, return value: %d\n",ret); // GINGEr need errorshecking!
-
-/**	recv_buf = ((MPID_Comm)*comm).bufferPtr;
-	
-	if (recv_buf == NULL){
-	  ret = MPI_ERR_BUFFER;// some sort of proper error here
-		mlog(MPI_DBG, "Error: No symmetric memory for PE: %d\n", my_pe);
-		if (isMultiThreads){
-			pthread_mutex_unlock(&lockRecv);
-		}
-		return ret;
-	}
-	else {
-	  ret = MPI_SUCCESS;
-	}
- **/
-	
-#ifdef DEBUG
-	if (shmem_addr_accessible( recv_buf, my_pe) ) {
-	  mlog(MPI_DBG, "MPI_Recv::Buffer is in a symmetric segment, pe: %d\n", my_pe);
-	}else{
-	  mlog(MPI_DBG, "MPI_Recv::Buffer is NOT in a symmetric segment, pe: %d\n", my_pe);
-	}
-#endif
-	
+	recv_buf = ((MPID_Comm)*comm).bufferPtr;
+		
 	switch (datatype){
 		case MPI_CHAR:
 		case MPI_UNSIGNED_CHAR:
 		case MPI_BYTE:
-			shmem_fence();
-			int i;
-			for (i=0;i<count;i++){
-				printf("MPI_Recv: pe: %d buf[] = %c\n", my_pe, ((char*) buf)[i]);
-				printf("MPI_Recv: pe: %d recv_buf[] = %c\n", my_pe, ((char*) recv_buf)[i]);
-			}
-			shmem_barrier_all();
 			shmem_getmem(buf, recv_buf, count, source);
 			//if (my_pe == 1){
-			shmem_barrier_all();
-				printf("MPI_Recv, AFTER: pe: %d from pe: %d, count: %d\n", my_pe, source, count);
+				printf("MPI_Recv: pe: %d from pe: %d, count: %d\n", my_pe, source, count);
 				for (i=0;i<count;i++){
 					printf("MPI_Recv: pe: %d buf[] = %c\n", my_pe, ((char*) buf)[i]);
 					printf("MPI_Recv: pe: %d recv_buf[] = %c\n", my_pe, ((char*) recv_buf)[i]);
@@ -1703,11 +1670,10 @@ int MPI_Recv (void *buf, int count, MPI_Datatype datatype, int source, int tag, 
 		case MPI_INT:
 		case MPI_UNSIGNED:
 		  shmem_int_get(buf, recv_buf, count, source);
-			shmem_fence();
 			if (my_pe == 1){
-				printf("MPI_Recv: pe: %d count: %d\n", my_pe, count);
+				printf("MPI_Recv: pe: %d count: %d, source: %d\n", my_pe, count, source);
 				int i;
-				for (i=0;i<count;i++){
+				for (i=0;i<count/4;i++){
 					printf("MPI_Recv: pe: %d buf[] = %d\n", my_pe, ((int*) buf)[i]);
 					printf("MPI_Recv: pe: %d recv_buf[] = %d\n", my_pe, ((int*) recv_buf)[i]);
 				}
@@ -1764,12 +1730,15 @@ int MPI_Recv (void *buf, int count, MPI_Datatype datatype, int source, int tag, 
  * @return status
  */
 int MPI_Send (void *buf, int count, MPI_Datatype datatype, int dest, int tag, MPI_Comm comm){
-/* NEW STUFF	*/
-	int  ret;
-	int my_pe;
-	void *recv_buf;
-	int  id;
-	int  numBytes;
+	int   ret;
+	int   my_pe;
+	void  *recv_buf;
+	void  *offset;
+	int   isItThereFlag;
+	int   numBytes;
+	int   expectedInt;
+	long  expectedLong;
+	long long expectedLongLong;
 	
 	if (comm == NULL) {
 		mlog(MPI_ERR, "Invalid communicator.\n");
@@ -1781,19 +1750,8 @@ int MPI_Send (void *buf, int count, MPI_Datatype datatype, int dest, int tag, MP
 	}
 	
 	my_pe = shmem_my_pe();
-	//id = my_pe + tag;
-	//printf("MPI_Send: me: %d, create a hash entry.\n", my_pe);
-
-	ret = AddBufferEntry(tag, count, datatype, my_pe, dest, SEND, &recv_buf, comm);
+	recv_buf = ((MPID_Comm)*comm).bufferPtr;
 	
-	if (recv_buf == NULL){
-		//Do something drastic..
-		printf("MPI_Send, did not come back with symmetric memory space fo receiving data\n");
-	}
-	
-	mlog(MPI_DBG,"MPI_Send: PE: %d, recv_buffer Addr = %x\n", my_pe, recv_buf);
-	printf ("\nMPI_Send: me: %d, dest: %d, tag: %d, value: %c\n", my_pe, dest, tag,  ((char*) buf)[0]);
-
 	if (recv_buf == NULL){
 		ret = MPI_ERR_BUFFER;// some sort of proper error here
 		mlog(MPI_DBG, "Error: No symmetric memory for PE: %d\n", my_pe);
@@ -1802,47 +1760,173 @@ int MPI_Send (void *buf, int count, MPI_Datatype datatype, int dest, int tag, MP
 		}
 		return ret;
 	}
-	else {
-		ret = MPI_SUCCESS;
-	}
 	//mlog(MPI_DBG,"MPI_Send: PE: %d, recv_buffer Addr = %x\n", my_pe, recv_buf);
-	
-	if (shmem_addr_accessible( recv_buf, my_pe) ) {
-		mlog(MPI_DBG, "MPI_SEND::Buffer is in a symmetric segment, pe: %d\n", my_pe);
-	}else{
-		mlog(MPI_DBG, "MPI_SEND::Buffer is NOT in a symmetric segment, pe: %d\n", my_pe);
-	}
-	
+		
+	// To make sure data has been sent; set up the follwoing
+	isItThereFlag = 0;
+		
 	switch (datatype){
 		case MPI_CHAR:
 		case MPI_UNSIGNED_CHAR:
 		case MPI_BYTE:
+			expectedInt = 12345;
+			numBytes    = 0;
+			
 			shmem_putmem(recv_buf, buf, count, dest);
+			
+			// get the next buffer space:
+			offset = GetBufferOffset(count, &numBytes, datatype, comm);
+			shmem_int_put(offset, &expectedInt, 1, dest);
+			shmem_fence(); // To guarentee order.
+
+			// Wait until the values are sent:
+			isItThereFlag = shmem_int_cswap(offset, expectedInt, expectedInt, dest);
+			printf ("MPI_SEND: isItThereFlag: %d\n", isItThereFlag);
+			
+			while (isItThereFlag != expectedInt) {
+				isItThereFlag = shmem_int_cswap(offset, expectedInt, expectedInt, dest);
+				printf ("MPI_SEND: looped:: isItThereFlag: %d\n", isItThereFlag);
+			}
 			break;
+			
 		case MPI_SHORT:
 		case MPI_UNSIGNED_SHORT:
+			expectedInt = 23456;
+			numBytes    = 0;
+			
 			shmem_short_put(recv_buf, buf, count, dest);
+
+			// get the next buffer space:
+			offset = GetBufferOffset(count, &numBytes, datatype, comm);
+			shmem_int_put(offset, &expectedInt, 1, dest);
+			shmem_fence(); // To guarentee order.
+			
+			// Wait until the values are sent:
+			isItThereFlag = shmem_int_cswap(offset, expectedInt, expectedInt, dest);
+			printf ("MPI_SEND: isItThereFlag: %d\n", isItThereFlag);
+			
+			while (isItThereFlag != expectedInt) {
+				isItThereFlag = shmem_int_cswap(offset, expectedInt, expectedInt, dest);
+				printf ("MPI_SEND: looped:: isItThereFlag: %d\n", isItThereFlag);
+			}
 			break;
+			
 		case MPI_INT:
 		case MPI_UNSIGNED:
+			expectedInt = ((int*)buf)[count-1];
+			offset      = &(((int*)recv_buf)[count-1]);
+			
+			printf ("MPI_SEND: expecting: %d\n", expectedInt);
+
 			shmem_int_put(recv_buf, buf, count, dest);
+
+			// Wait until the values are sent:
+			isItThereFlag = shmem_int_cswap(offset, expectedInt, expectedInt, dest);
+			printf ("MPI_SEND: isItThereFlag: %d\n", isItThereFlag);
+			
+			while (isItThereFlag != expectedInt) {
+				isItThereFlag = shmem_int_cswap(offset, expectedInt, expectedInt, dest);
+				printf ("MPI_SEND: looped:: isItThereFlag: %d\n", isItThereFlag);
+			}
+			
 			break;
+			
 		case MPI_LONG:
 		case MPI_UNSIGNED_LONG:
+			expectedLong = ((long*)buf)[count-1];
+			offset       = &(((long*)recv_buf)[count-1]);
+
 			shmem_long_put(recv_buf, buf, count, dest);
+			
+			// Wait until the values are sent:
+			isItThereFlag = shmem_long_cswap(offset, expectedLong, expectedLong, dest);
+			printf ("MPI_SEND: isItThereFlag: %d\n", isItThereFlag);
+			
+			while (isItThereFlag != expectedLong) {
+				isItThereFlag = shmem_long_cswap(offset, expectedLong, expectedLong, dest);
+				printf ("MPI_SEND: looped:: isItThereFlag: %d\n", isItThereFlag);
+			}
 			break;
+			
 		case MPI_FLOAT:
+			expectedInt = 34567;
+			numBytes    = 0;
+			
 			shmem_float_put(recv_buf, buf, count, dest);
+			
+			// get the next buffer space:
+			offset = GetBufferOffset(count, &numBytes, datatype, comm);
+			shmem_int_put(offset, &expectedInt, 1, dest);
+			shmem_fence(); // To guarentee order.
+			
+			// Wait until the values are sent:
+			isItThereFlag = shmem_int_cswap(offset, expectedInt, expectedInt, dest);
+			printf ("MPI_SEND: isItThereFlag: %d\n", isItThereFlag);
+			
+			while (isItThereFlag != expectedInt) {
+				isItThereFlag = shmem_int_cswap(offset, expectedInt, expectedInt, dest);
+				printf ("MPI_SEND: looped:: isItThereFlag: %d\n", isItThereFlag);
+			}
 			break;
+			
 		case MPI_DOUBLE:
+			expectedInt = 45678;
+			numBytes    = 0;
+			
 			shmem_double_put(recv_buf, buf, count, dest);
+
+			// get the next buffer space:
+			offset = GetBufferOffset(count, &numBytes, datatype, comm);
+			shmem_int_put(offset, &expectedInt, 1, dest);
+			shmem_fence(); // To guarentee order.
+			
+			// Wait until the values are sent:
+			isItThereFlag = shmem_int_cswap(offset, expectedInt, expectedInt, dest);
+			printf ("MPI_SEND: isItThereFlag: %d\n", isItThereFlag);
+			
+			while (isItThereFlag != expectedInt) {
+				isItThereFlag = shmem_int_cswap(offset, expectedInt, expectedInt, dest);
+				printf ("MPI_SEND: looped:: isItThereFlag: %d\n", isItThereFlag);
+			}
 			break;
+			
 		case MPI_LONG_DOUBLE:
+			expectedInt = 56789;
+			numBytes    = 0;
+			
 			shmem_longdouble_put(recv_buf, buf, count, dest);
+
+			// get the next buffer space:
+			offset = GetBufferOffset(count, &numBytes, datatype, comm);
+			shmem_int_put(offset, &expectedInt, 1, dest);
+			shmem_fence(); // To guarentee order.
+			
+			// Wait until the values are sent:
+			isItThereFlag = shmem_int_cswap(offset, expectedInt, expectedInt, dest);
+			printf ("MPI_SEND: isItThereFlag: %d\n", isItThereFlag);
+			
+			while (isItThereFlag != expectedInt) {
+				isItThereFlag = shmem_int_cswap(offset, expectedInt, expectedInt, dest);
+				printf ("MPI_SEND: looped:: isItThereFlag: %d\n", isItThereFlag);
+			}
 			break;
+			
 		case MPI_LONG_LONG:
+			expectedLongLong = ((long long*)buf)[count-1];
+			offset           = &(((long long*)recv_buf)[count-1]);
+			
 			shmem_longlong_put(recv_buf, buf, count, dest);
+			
+			// Wait until the values are sent:
+			isItThereFlag = shmem_longlong_cswap(offset, expectedLongLong, expectedLongLong, dest);
+			printf ("MPI_SEND: isItThereFlag: %d\n", isItThereFlag);
+			
+			while (isItThereFlag != expectedLongLong) {
+				isItThereFlag = shmem_longlong_cswap(offset, expectedLongLong, expectedLongLong, dest);
+				printf ("MPI_SEND: looped:: isItThereFlag: %d\n", isItThereFlag);
+			}
 			break;
+			
 		default:
 			/* DEBUG *
 			 if (my_pe == 1) {
@@ -1852,14 +1936,27 @@ int MPI_Send (void *buf, int count, MPI_Datatype datatype, int dest, int tag, MP
 			 printf("MPI_Send: pe: %d buf[] = %d\n", my_pe, ((char*) buf)[i]);
 			 }
 			 }**/
+			expectedInt = 67890;
+			numBytes    = 0;
 			
 			shmem_putmem(recv_buf, buf, count, dest);
+			
+			// get the next buffer space:
+			offset = GetBufferOffset(count, &numBytes, datatype, comm);
+			shmem_int_put(offset, &expectedInt, 1, dest);
+			shmem_fence(); // To guarentee order.
+			
+			// Wait until the values are sent:
+			isItThereFlag = shmem_int_cswap(offset, expectedInt, expectedInt, dest);
+			printf ("MPI_SEND: isItThereFlag: %d\n", isItThereFlag);
+			
+			while (isItThereFlag != expectedInt) {
+				isItThereFlag = shmem_int_cswap(offset, expectedInt, expectedInt, dest);
+				printf ("MPI_SEND: looped:: isItThereFlag: %d\n", isItThereFlag);
+			}
 			break;
 	}
-	
-	// and to be on the safe side:
-	shmem_fence();
-
+		
 	if (isMultiThreads){
 		pthread_mutex_unlock(&lockSend);
 	}
