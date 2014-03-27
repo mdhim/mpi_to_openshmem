@@ -12,10 +12,28 @@
  */
 
 #include "mpi_to_openshmem.h"
-#include "hashUtils.h"
 
 #define DEBUG 1
 
+void GetLongEnvVariable( char* envName, long *envValue, long defaultValue){
+	char*         envVariable;
+	
+	int my_pe = shmem_my_pe();
+	
+	// Get the enivornament variable values:
+	envVariable = NULL;
+	envVariable = getenv(envName);
+	
+	if (envVariable == NULL){
+		*envValue = defaultValue;
+		if (my_pe == 0 )
+			printf("GetLongEnvVariable:: envName: %s envVariable: %s\n", envName, envVariable);
+	}else {
+		*envValue = atol( envVariable );
+		if (my_pe == 0 )
+			printf("GetLongEnvVariable:: envName: %s envVariable: %s, envValue: %ld\n", envName, envVariable, *envValue);
+	}
+}
 
 /**
  * MPI_Init
@@ -28,12 +46,18 @@
 
 int MPI_Init( int *argc, char ***argv ){
 
-	int        i;
-	int		   ret = MPI_SUCCESS;
-	void       *sharedBuffer;
-	MPID_Group *groupPtr;
-	int		   *pesGroupPtr;
-	struct MPID_Hash *bufHashTbl = NULL;
+	int           i;
+	int		      ret = MPI_SUCCESS;
+	void          *sharedBuffer;
+	void          *packedBuffer;
+	void          *scratchBuffer;
+	MPID_Group    *groupPtr;
+	int		      *pesGroupPtr;
+	MPID_SendRecv *sendRcvPtr;
+	long		  maxNumTracked;
+	long		  maxSizeSend;
+	long		  maxSizePack;
+	long		  maxSizeScratch;
 	
 	//Open mlog - stolen from plfs
 	ret = mlog_open((char *)"mpi_to_openshmem", 0, MLOG_CRIT, MLOG_CRIT, NULL, 0, MLOG_LOGPID, 0);
@@ -46,18 +70,29 @@ int MPI_Init( int *argc, char ***argv ){
 	// It is not threaded:
 	isMultiThreads = FALSE;
 	
-	sharedBuffer = (void *)shmalloc(sizeof(char) * MAX_BUFFER_SIZE);
+	
+	GetLongEnvVariable("MAX_NUM_TRACKED",  &maxNumTracked,  MAX_NUM_TRACKED);
+	GetLongEnvVariable("MAX_SIZE_SEND",    &maxSizeSend,    MAX_BUFFER_SIZE);
+	GetLongEnvVariable("MAX_SIZE_PACK",    &maxSizePack,    MAX_BUFFER_SIZE);
+	GetLongEnvVariable("MAX_SIZE_SCRATCH", &maxSizeScratch, MAX_BUFFER_SIZE);
+
+	// Make space for the various buffers:
+	sharedBuffer = (void *)shmalloc(sizeof(char) * (maxSizeSend * maxNumTracked));
 	if (sharedBuffer == NULL ){
-		mlog(MPI_ERR, "MPI_Init:: PE: %d, could not shmalloc space for symmetric memory.\n", my_pe);
+		mlog(MPI_ERR, "MPI_Init_thread:: PE: %d, could not shmalloc space for Send/Recv's symmetric memory.\n", my_pe);
 		return MPI_ERR_NO_MEM;
 	}
-
-	if (shmem_addr_accessible( sharedBuffer, my_pe) ) {
-		mlog(MPI_DBG, "MPI_Init::Buffer is in a symmetric segment for target pe: %d\n", my_pe);
-	}else{
-		mlog(MPI_ERR, "MPI_Init::Buffer is NOT in a symmetric segment for target pe: %d\n", my_pe);
-		return MPI_ERR_BUFFER;
+	packedBuffer = (void *)shmalloc(sizeof(char) * maxSizePack);
+	if (packedBuffer == NULL ){
+		mlog(MPI_ERR, "MPI_Init_thread:: PE: %d, could not shmalloc space for Pack/Unpack's symmetric memory.\n", my_pe);
+		return MPI_ERR_NO_MEM;
 	}
+	scratchBuffer = (void *)shmalloc(sizeof(char) * maxSizeScratch);
+	if (scratchBuffer == NULL ){
+		mlog(MPI_ERR, "MPI_Init_thread:: PE: %d, could not shmalloc space for Scratch's symmetric memory.\n", my_pe);
+		return MPI_ERR_NO_MEM;
+	}
+	
 	
 	// Make space for the initial MPI_COMM_WORLD
 	MPI_COMM_WORLD = (MPID_Comm *)shmalloc( sizeof(MPID_Comm) );
@@ -76,16 +111,37 @@ int MPI_Init( int *argc, char ***argv ){
 	if (pesGroupPtr == NULL ){
 		mlog(MPI_ERR, "MPI_Init:: PE: %d, could not shmalloc space for MPID_Group.pesInGroup.\n", my_pe);
 		return MPI_ERR_NO_MEM;
-	}
+	}	
 	
+	// Make space for the array of send/recv data
+	sendRcvPtr = (MPID_SendRecv *)shmalloc(sizeof(MPID_SendRecv) * maxNumTracked);
+	if (sendRcvPtr == NULL ){
+		mlog(MPI_ERR, "MPI_Init_thread:: PE: %d, could not shmalloc space for MPID_SendRecv structures.\n", my_pe);
+		return MPI_ERR_NO_MEM;
+	}
+	// Initialize values in array:
+	for (i=0; i<maxNumTracked; i++) {
+		sendRcvPtr[i].tag      = 0;
+		sendRcvPtr[i].datatype = -1;
+		sendRcvPtr[i].count    = 0;
+		sendRcvPtr[i].bufPtr   = sharedBuffer; // (this is a calculated offset into shared buffer...)
+		sendRcvPtr[i].afterBufAreaPtr = sharedBuffer; // (this is a calculated offset into shared buffer for the next buffer...)
+		// GINGER: Need a way to track we don't overrun memory!
+	}
+
 	//printf("MPI_Init_Thread: after start_pes, set up rank and local size\n");
 	
 	// Set up the rank and local_size (npes)
-	((MPID_Comm) *MPI_COMM_WORLD).rank      = my_pe;
-	((MPID_Comm) *MPI_COMM_WORLD).size      = npes;
-	((MPID_Comm) *MPI_COMM_WORLD).bufferPtr = sharedBuffer;
- 	((MPID_Comm) *MPI_COMM_WORLD).groupPtr  = groupPtr;
- 	((MPID_Comm) *MPI_COMM_WORLD).offset    = 0;
+	((MPID_Comm) *MPI_COMM_WORLD).rank       = my_pe;
+	((MPID_Comm) *MPI_COMM_WORLD).size       = npes;
+	((MPID_Comm) *MPI_COMM_WORLD).bufferPtr  = sharedBuffer;
+	((MPID_Comm) *MPI_COMM_WORLD).packPtr    = packedBuffer;
+	((MPID_Comm) *MPI_COMM_WORLD).scratchPtr = scratchBuffer;
+ 	((MPID_Comm) *MPI_COMM_WORLD).groupPtr   = groupPtr;
+ 	((MPID_Comm) *MPI_COMM_WORLD).offset     = 0;
+	for (i=0; i<maxNumTracked; i++) {
+		((MPID_Comm) *MPI_COMM_WORLD).sendInfo[i] = sendRcvPtr[i];
+	}
 	
 	// Set values in the Comm's Group
 	((MPID_Group)*groupPtr).rank    = my_pe;
@@ -97,10 +153,7 @@ int MPI_Init( int *argc, char ***argv ){
 	for (i=0; i<npes; i++){
 		((MPID_Group)*groupPtr).pesInGroup[i] = i;
 	}
-	
-	// Add in a pointer to the hash:
- 	((MPID_Comm) *MPI_COMM_WORLD).hashPtr = bufHashTbl;
-	
+		
 #ifdef DEBUG
 	int me = _my_pe();
 	printf("MPI_Init_Thread: Me: %d, MPI_COMM_WORLD.rank: %d, .size: %d\n", me,((MPID_Comm) *MPI_COMM_WORLD).rank,((MPID_Comm) *MPI_COMM_WORLD).size);
@@ -124,12 +177,18 @@ int MPI_Init( int *argc, char ***argv ){
  */
 
 int MPI_Init_thread( int *argc, char ***argv, int required, int *provided ){
-	int          i;
-	int		     ret = MPI_SUCCESS;
-	void         *sharedBuffer;
-	MPID_Group   *groupPtr;
-	int		     *pesGroupPtr;
-	struct MPID_Hash *bufHashTbl = NULL;
+	int           i;
+	int		      ret = MPI_SUCCESS;
+	void          *sharedBuffer; // This is going to be used for send/recv only...
+	void          *packedBuffer;
+	void          *scratchBuffer;
+	MPID_Group    *groupPtr;
+	int		      *pesGroupPtr;
+	MPID_SendRecv *sendRcvPtr;
+	long		  maxNumTracked;
+	long		  maxSizeSend;
+	long		  maxSizePack;
+	long		  maxSizeScratch;
 	
 	//Open mlog - stolen from plfs
 	ret = mlog_open((char *)"mpi_to_openshmem", 0, MLOG_CRIT, MLOG_CRIT, NULL, 0, MLOG_LOGPID, 0);
@@ -142,19 +201,32 @@ int MPI_Init_thread( int *argc, char ***argv, int required, int *provided ){
 	// It is threaded:
 	isMultiThreads = TRUE;
 
-	sharedBuffer = (void *)shmalloc(sizeof(char) * MAX_BUFFER_SIZE);
+	GetLongEnvVariable("MAX_NUM_TRACKED",  &maxNumTracked,  MAX_NUM_TRACKED);
+	GetLongEnvVariable("MAX_SIZE_SEND",    &maxSizeSend,    MAX_BUFFER_SIZE);
+	GetLongEnvVariable("MAX_SIZE_PACK",    &maxSizePack,    MAX_BUFFER_SIZE);
+	GetLongEnvVariable("MAX_SIZE_SCRATCH", &maxSizeScratch, MAX_BUFFER_SIZE);
+	
+	if (my_pe == 0){
+		printf("MPI_Init_Thread:: maxNumTracked: %ld maxSizeSend: %ld maxSizePack: %ld  maxSizeScratch: %ld \n", maxNumTracked, maxSizeSend, maxSizePack, maxSizeScratch);
+	}
+	
+	// Make Space for the various buffers:
+	sharedBuffer = (void *)shmalloc(sizeof(char) * (maxSizeSend * maxNumTracked));
 	if (sharedBuffer == NULL ){
-		mlog(MPI_ERR, "MPI_Init_thread:: PE: %d, could not shmalloc space for symmetric memory.\n", my_pe);
+		mlog(MPI_ERR, "MPI_Init_thread:: PE: %d, could not shmalloc space for Send/Recv's symmetric memory.\n", my_pe);
+		return MPI_ERR_NO_MEM;
+	}
+	packedBuffer = (void *)shmalloc(sizeof(char) * maxSizePack);
+	if (packedBuffer == NULL ){
+		mlog(MPI_ERR, "MPI_Init_thread:: PE: %d, could not shmalloc space for Pack/Unpack's symmetric memory.\n", my_pe);
+		return MPI_ERR_NO_MEM;
+	}
+	scratchBuffer = (void *)shmalloc(sizeof(char) * maxSizeScratch);
+	if (scratchBuffer == NULL ){
+		mlog(MPI_ERR, "MPI_Init_thread:: PE: %d, could not shmalloc space for Scratch's symmetric memory.\n", my_pe);
 		return MPI_ERR_NO_MEM;
 	}
 	
-	if (shmem_addr_accessible( sharedBuffer, my_pe) ) {
-		mlog(MPI_DBG, "MPI_Init_thread::Buffer is in a symmetric segment for target pe: %d\n", my_pe);
-	}else{
-		mlog(MPI_ERR, "MPI_Init_thread::Buffer is NOT in a symmetric segment for target pe: %d\n", my_pe);
-		return MPI_ERR_BUFFER;
-	}
-
 	// Make space for the initial MPI_COMM_WORLD
 	MPI_COMM_WORLD = (MPID_Comm *)shmalloc( sizeof(MPID_Comm) );
 	if (MPI_COMM_WORLD == NULL ){
@@ -173,15 +245,36 @@ int MPI_Init_thread( int *argc, char ***argv, int required, int *provided ){
 		mlog(MPI_ERR, "MPI_Init_thread:: PE: %d, could not shmalloc space for MPID_Group.pesInGroup.\n", my_pe);
 		return MPI_ERR_NO_MEM;
 	}	
+
+	// Make space for the array of send/recv data
+	sendRcvPtr = (MPID_SendRecv *)shmalloc(sizeof(MPID_SendRecv) * maxNumTracked);
+	if (sendRcvPtr == NULL ){
+		mlog(MPI_ERR, "MPI_Init_thread:: PE: %d, could not shmalloc space for MPID_SendRecv structures.\n", my_pe);
+		return MPI_ERR_NO_MEM;
+	}
+	// Initialize values in array:
+	for (i=0; i<maxNumTracked; i++) {
+		sendRcvPtr[i].tag      = 0;
+		sendRcvPtr[i].datatype = -1;
+		sendRcvPtr[i].count    = 0;
+		sendRcvPtr[i].bufPtr   = sharedBuffer; // (this is a calculated offset into shared buffer...)
+		sendRcvPtr[i].afterBufAreaPtr = sharedBuffer; // (this is a calculated offset into shared buffer for the next buffer...)
+		// GINGER: Need a way to track we don't overrun memory!
+	}
 	
 	//printf("MPI_Init_Thread: after start_pes, set up rank and local size\n");
 	
 	// Set up the rank and local_size (npes)
-	((MPID_Comm) *MPI_COMM_WORLD).rank      = my_pe;
-	((MPID_Comm) *MPI_COMM_WORLD).size      = npes;
-	((MPID_Comm) *MPI_COMM_WORLD).bufferPtr = sharedBuffer;
- 	((MPID_Comm) *MPI_COMM_WORLD).groupPtr  = groupPtr;
- 	((MPID_Comm) *MPI_COMM_WORLD).offset    = 0;
+	((MPID_Comm) *MPI_COMM_WORLD).rank       = my_pe;
+	((MPID_Comm) *MPI_COMM_WORLD).size       = npes;
+	((MPID_Comm) *MPI_COMM_WORLD).bufferPtr  = sharedBuffer;
+	((MPID_Comm) *MPI_COMM_WORLD).packPtr    = packedBuffer;
+	((MPID_Comm) *MPI_COMM_WORLD).scratchPtr = scratchBuffer;
+ 	((MPID_Comm) *MPI_COMM_WORLD).groupPtr   = groupPtr;
+ 	((MPID_Comm) *MPI_COMM_WORLD).offset     = 0;
+	for (i=0; i<maxNumTracked; i++) {
+		((MPID_Comm) *MPI_COMM_WORLD).sendInfo[i] = sendRcvPtr[i];
+	}
 	
 	// Set values in the Comm's Group
 	((MPID_Group)*groupPtr).rank    = my_pe;
@@ -192,9 +285,6 @@ int MPI_Init_thread( int *argc, char ***argv, int required, int *provided ){
 	for (i=0; i<npes; i++){
 		((MPID_Group)*groupPtr).pesInGroup[i] = i;
 	}
-
-	// Add in a pointer to the hash:
- 	((MPID_Comm) *MPI_COMM_WORLD).hashPtr = bufHashTbl;
 
 #ifdef DEBUG
 		int me = _my_pe();
@@ -1637,6 +1727,7 @@ int MPI_Recv (void *buf, int count, MPI_Datatype datatype, int source, int tag, 
 	int  ret, i;
 	void *recv_buf;
 	int my_pe;
+	int tagIndex;
 	
 	if (comm == NULL) {
 		mlog(MPI_ERR, "Invalid communicator.\n");
@@ -1648,8 +1739,41 @@ int MPI_Recv (void *buf, int count, MPI_Datatype datatype, int source, int tag, 
 	}
 	
 	my_pe = shmem_my_pe();
-	recv_buf = ((MPID_Comm)*comm).bufferPtr;
-		
+/*	recv_buf = ((MPID_Comm)*comm).bufferPtr; */
+	
+	// Check to see if data is there: find via tag...
+	// Use SendInfo structure to send/recv:
+	// This is the first code snippet, so set the index to 0...
+	i = FALSE;
+	tagIndex = 0;
+	// Look for the buffer space 
+	if ( comm->sendInfo[tagIndex].tag ==  tag ){
+		printf("MPI_Recv: Tags match!");
+		i = 1;
+	}
+	if ( comm->sendInfo[tagIndex].count ==  count ){
+		printf("MPI_Recv: Tags match!");
+		i = 100 + i;
+	}
+	if ( comm->sendInfo[tagIndex].datatype ==  datatype ){
+		printf("MPI_Recv: datatype match!");
+		i = 100 + i;
+	}
+	recv_buf = comm->sendInfo[tagIndex].bufPtr;
+	printf("MPI_Recv: i = %d!", i);
+	
+	// Data is already there, we just need to find it.
+	CopyMyData(buf, recv_buf, count, datatype);
+	
+	shmem_fence(); // I believe this is necessary...
+	
+	// Reset the symmetric space so it can be re-used:
+	comm->sendInfo[tagIndex].tag = 0;
+	comm->sendInfo[tagIndex].count = 0;
+	comm->sendInfo[tagIndex].datatype = -1;
+	comm->sendInfo[tagIndex].bufPtr = comm->bufferPtr;
+	comm->sendInfo[tagIndex].afterBufAreaPtr = comm->bufferPtr;
+	/*
 	switch (datatype){
 		case MPI_CHAR:
 		case MPI_UNSIGNED_CHAR:
@@ -1697,17 +1821,9 @@ int MPI_Recv (void *buf, int count, MPI_Datatype datatype, int source, int tag, 
 		  break;
 		default:
 		  shmem_getmem(buf, recv_buf, count, source);
-			/** DEBUG **
-			if (my_pe == 1){
-				printf("MPI_Recv: pe: %d count: %d\n", my_pe, count);
-				int i;
-				for (i=0;i<count;i++){
-					printf("MPI_Recv: pe: %d buf[] = %d\n", my_pe, ((char*) buf)[i]);
-				}
-			} **/
 			break;
 	}
-	
+	*/
 	if (isMultiThreads){
 		pthread_mutex_unlock(&lockRecv);
 	}
@@ -1734,6 +1850,7 @@ int MPI_Send (void *buf, int count, MPI_Datatype datatype, int dest, int tag, MP
 	int   my_pe;
 	void  *recv_buf;
 	void  *offset;
+	int	  tagIndex;
 	int   isItThereFlag;
 	int   numBytes;
 	int   expectedInt;
@@ -1750,7 +1867,7 @@ int MPI_Send (void *buf, int count, MPI_Datatype datatype, int dest, int tag, MP
 	}
 	
 	my_pe = shmem_my_pe();
-	recv_buf = ((MPID_Comm)*comm).bufferPtr;
+	/*recv_buf = ((MPID_Comm)*comm).bufferPtr;
 	
 	if (recv_buf == NULL){
 		ret = MPI_ERR_BUFFER;// some sort of proper error here
@@ -1759,7 +1876,15 @@ int MPI_Send (void *buf, int count, MPI_Datatype datatype, int dest, int tag, MP
 			pthread_mutex_unlock(&lockSend);
 		}
 		return ret;
-	}
+	}*/
+	
+	// Use SendInfo structure to send/recv:
+	// This is the first code snippet, so set the index to 0...
+	comm->sendInfo[0].tag = tag;
+	comm->sendInfo[0].datatype = datatype;
+	comm->sendInfo[0].count = count;
+	recv_buf = comm->sendInfo[0].bufPtr;
+	
 	//mlog(MPI_DBG,"MPI_Send: PE: %d, recv_buffer Addr = %x\n", my_pe, recv_buf);
 		
 	// To make sure data has been sent; set up the follwoing

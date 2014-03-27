@@ -4085,8 +4085,8 @@ CINC    = -I${OPENSHMEM_ROOT}/include -I${GASNET_ROOT}/include -IMlog/
 FLAGS   =  -lopenshmem -L/usr/lib64 -lgasnet-ibv-par -libverbs -lm -lpthread -lstdc++
 
 
-OBJS    = hashUtils.o mlog.o
-all:    mlog.o hashUtils.o mpi_to_openshmem.o lib
+OBJS    = mlog.o
+all:    mlog.o mpi_to_openshmem.o lib
 
 hashUtils.o: hashUtils.c $(OBJS)
         $(CC) -c $< $(CINC) $(CLIBS) $(CFLAGS) 
